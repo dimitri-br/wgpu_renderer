@@ -12,9 +12,12 @@ mod renderer;
 
 use renderer::texture::Texture;
 use crate::renderer::bind_group_cache::BindGroupCache;
+use crate::renderer::gpu_mesh::GpuMesh;
+use crate::renderer::mesh::Mesh;
+use crate::renderer::transform::Transform;
 
 pub struct State {
-    pub device: Arc<Device>,
+    pub device: Device,
     pub queue: Queue,
     pub surface: Surface<'static>,
     pub surface_config: SurfaceConfiguration,
@@ -23,6 +26,7 @@ pub struct State {
     bind_group_cache: Arc<BindGroupCache>,
     shaders: RwLock<HashMap<String, Arc<Shader>>>,
     textures: RwLock<HashMap<String, Arc<Texture>>>,
+    uniform_buffers: RwLock<HashMap<String, Arc<Buffer>>>,
 }
 
 impl State {
@@ -55,8 +59,6 @@ impl State {
             None
         ).await.unwrap();
 
-        let device = Arc::new(device);
-
         // Create surface configuration
         let size = window.inner_size();
         let surface_format = TextureFormat::Bgra8UnormSrgb;
@@ -77,6 +79,7 @@ impl State {
         let bind_group_cache = Arc::new(BindGroupCache::new(device.clone()));
         let shaders = RwLock::new(HashMap::new());
         let textures = RwLock::new(HashMap::new());
+        let uniform_buffers = RwLock::new(HashMap::new());
 
         Self {
             device,
@@ -87,6 +90,7 @@ impl State {
             bind_group_cache,
             shaders,
             textures,
+            uniform_buffers,
         }
     }
 
@@ -133,6 +137,17 @@ impl State {
         self.textures.write().unwrap().insert(name.to_string(), Arc::new(texture));
         self.textures.read().unwrap().get(name).unwrap().clone()
     }
+
+    pub fn create_uniform_buffer(&self, name: &str, size: u64) -> Arc<Buffer> {
+        let buffer = self.device.create_buffer(&BufferDescriptor {
+            label: Some(name),
+            size,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.uniform_buffers.write().unwrap().insert(name.to_string(), Arc::new(buffer));
+        self.uniform_buffers.read().unwrap().get(name).unwrap().clone()
+    }
 }
 
 fn main() {
@@ -169,6 +184,22 @@ fn main() {
         anisotropy_clamp: 1,
         border_color: None,
     })));
+
+    let mesh = Mesh::load_obj(std::path::Path::new("assets/teapot.obj")).unwrap();
+    let gpu_mesh = GpuMesh::from_cpu_mesh(&state.device, &mesh);
+
+    let transform_uniform = state.create_uniform_buffer("Transform", std::mem::size_of::<Transform>() as u64);
+    let mut transform = Transform::new();
+    transform.set_transform(
+        glam::Vec3::new(0.0, 0.0, -5.0),
+        glam::Quat::from_euler(glam::EulerRot::XYZ, 0.0, 0.0, 0.0),
+        glam::Vec3::new(0.5, 0.5, 0.5)
+    );
+
+    transform.update_uniforms(&transform_uniform, &state.queue);
+
+    material.set_uniform("uniforms", transform_uniform.clone());
+
 
     // Run the event loop
     event_loop.run(move |event, tgt| {
@@ -218,7 +249,7 @@ fn main() {
 
                         material.bind(&mut rpass);
 
-                        rpass.draw(0..3, 0..1);
+                        gpu_mesh.draw(&mut rpass);
                     }
 
                     // Submit command buffers

@@ -35,12 +35,12 @@ impl Hash for BindGroupKey {
 
 /// Global or engine-wide bind group cache, keyed by BindGroupKey.
 pub struct BindGroupCache {
-    device: Arc<Device>,
+    device: Device,
     cache: RwLock<HashMap<BindGroupKey, Arc<BindGroup>>>,
 }
 
 impl BindGroupCache {
-    pub fn new(device: Arc<Device>) -> Self {
+    pub fn new(device: Device) -> Self {
         Self {
             device,
             cache: RwLock::new(HashMap::new()),

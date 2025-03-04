@@ -8,5 +8,6 @@ use wgpu::{TextureView, Sampler};
 pub enum MaterialResource {
     Texture(Arc<TextureView>),
     Sampler(Arc<Sampler>),
+    UniformBuffer(Arc<wgpu::Buffer>),
     // Extend with uniform buffers, storage buffers, etc.
 }

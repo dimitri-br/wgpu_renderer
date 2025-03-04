@@ -38,7 +38,7 @@ impl Default for PipelineParams {
 /// - The created bind groups (one per bind group index)
 pub struct Material {
     pipeline_manager: Arc<PipelineManager>,
-    device: Arc<wgpu::Device>,
+    device: wgpu::Device,
 
     shader: Arc<Shader>,
 
@@ -61,7 +61,7 @@ impl Material {
     pub(crate) fn new(
         shader: Arc<Shader>,
         pipeline_manager: Arc<PipelineManager>,
-        device: Arc<wgpu::Device>,
+        device: wgpu::Device,
         bind_group_cache: Arc<BindGroupCache>,
     ) -> Self {
         // Prepare a vector of empty bind group slots matching the number
@@ -148,7 +148,10 @@ impl Material {
         self.bind_groups_dirty = true;
     }
 
-    // And similarly for buffers, etc.
+    pub fn set_uniform(&mut self, param_name: &str, buffer: Arc<wgpu::Buffer>) {
+        self.resource_params.insert(param_name.to_string(), MaterialResource::UniformBuffer(buffer));
+        self.bind_groups_dirty = true;
+    }
 
     // -----------------
     // Bind Group Caching
@@ -197,6 +200,7 @@ impl Material {
                             resource: match resource {
                                 MaterialResource::Texture(view) => BindingResource::TextureView(view),
                                 MaterialResource::Sampler(smp) => BindingResource::Sampler(smp),
+                                MaterialResource::UniformBuffer(buf) => BindingResource::Buffer(buf.as_entire_buffer_binding()),
                             },
                         };
                         entries.push(entry);
@@ -207,6 +211,7 @@ impl Material {
                         let ptr_id = match resource {
                             MaterialResource::Texture(view) => Arc::<wgpu::TextureView>::as_ptr(&view) as usize,
                             MaterialResource::Sampler(smp) => Arc::<wgpu::Sampler>::as_ptr(&smp) as usize,
+                            MaterialResource::UniformBuffer(buf) => Arc::<wgpu::Buffer>::as_ptr(&buf) as usize,
                         };
                         resource_ids.push(ptr_id);
                     } else {

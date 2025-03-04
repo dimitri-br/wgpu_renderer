@@ -18,7 +18,7 @@ pub(crate) struct Binding {
 /// Represents a shader with its bindings, layouts, entry points, and configurations.
 #[derive(Debug, Clone)]
 pub(crate) struct Shader {
-    device: Arc<Device>,
+    device: Device,
     bindings: Vec<Binding>, // All bindings extracted from the shader
     bind_group_layouts: BTreeMap<u64, Arc<BindGroupLayout>>, // Bind group layouts indexed by group ID
     vertex_entry_point: Option<String>, // Entry point name for the vertex shader
@@ -39,7 +39,7 @@ impl Shader {
     /// # Returns
     ///
     /// A new instance of `Shader`.
-    pub fn new<T: Into<String>>(device: Arc<Device>, shader_source: T) -> Self {
+    pub fn new<T: Into<String>>(device: Device, shader_source: T) -> Self {
         Self {
             device,
             bindings: Vec::new(),
