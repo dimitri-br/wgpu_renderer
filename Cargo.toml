@@ -1,0 +1,16 @@
+[package]
+name = "wgpu_renderer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+wgpu = { git = "https://github.com/gfx-rs/wgpu.git", features = ["vulkan-portability"] }
+winit = { version = "0.29", features = ["rwh_05"] }
+glam = "0.29.2"
+gltf = "1.4.1"
+pollster = "0.4.0"
+bytemuck = "1.21.0"
+log = "0.4.22"
+naga = { version = "24.0.0", features = ["wgsl-in"] }
+env_logger = "0.11.6"
+image = { version = "0.25.5", features = ["png", "jpeg"] }
