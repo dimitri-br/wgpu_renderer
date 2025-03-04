@@ -1,23 +1,22 @@
 use std::collections::HashMap;
 use std::sync::{Arc};
-use wgpu::{
-    RenderPipeline, TextureView, Sampler, Face,
-    BlendState, ColorTargetState, BlendComponent, BlendFactor, BlendOperation,
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindingResource,
-};
+use wgpu::{RenderPipeline, TextureView, Sampler, Face, BlendState, ColorTargetState, BlendComponent, BlendFactor, BlendOperation, BindGroup, BindGroupDescriptor, BindGroupEntry, BindingResource, FrontFace};
 use log::error;
 use crate::renderer::bind_group_cache::{BindGroupCache, BindGroupKey};
 // or warn, depending on your preference
 
-use crate::renderer::material_resource::MaterialResource;
+use crate::renderer::types::material_resource::MaterialResource;
 use crate::renderer::pipeline_manager::PipelineManager;
 use crate::renderer::shader_reflect::{Shader, Binding};
+use crate::renderer::types::sampler::SamplerParameters;
+use crate::renderer::types::uniform::UniformBuffer;
 
 /// Pipeline-affecting parameters
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PipelineParams {
     pub transparent: bool,
     pub cull_mode: Option<Face>,
+    pub front_face: FrontFace,
 }
 
 impl Default for PipelineParams {
@@ -25,6 +24,7 @@ impl Default for PipelineParams {
         Self {
             transparent: false,
             cull_mode: Some(Face::Back),
+            front_face: FrontFace::Ccw,
         }
     }
 }
@@ -97,6 +97,13 @@ impl Material {
         }
     }
 
+    pub fn set_front_face(&mut self, face: FrontFace) {
+        if self.pipeline_params.front_face != face {
+            self.pipeline_params.front_face = face;
+            self.cached_pipeline = None;
+        }
+    }
+
     /// Build or retrieve the pipeline from the pipeline manager.
     /// This is typically called during rendering.
     pub fn get_pipeline(&mut self) -> Arc<RenderPipeline> {
@@ -128,6 +135,8 @@ impl Material {
                 }
                 // Cull Mode
                 primitive.cull_mode = self.pipeline_params.cull_mode;
+                // Front Face
+                primitive.front_face = self.pipeline_params.front_face;
             },
         );
 
@@ -143,12 +152,12 @@ impl Material {
         self.bind_groups_dirty = true;
     }
 
-    pub fn set_sampler(&mut self, param_name: &str, sampler: Arc<Sampler>) {
-        self.resource_params.insert(param_name.to_string(), MaterialResource::Sampler(sampler));
+    pub fn set_sampler(&mut self, param_name: &str, sampler_parameters: SamplerParameters) {
+        self.resource_params.insert(param_name.to_string(), MaterialResource::Sampler(Arc::new(sampler_parameters.create_sampler(&self.device))));
         self.bind_groups_dirty = true;
     }
 
-    pub fn set_uniform(&mut self, param_name: &str, buffer: Arc<wgpu::Buffer>) {
+    pub fn set_uniform(&mut self, param_name: &str, buffer: Arc<UniformBuffer>) {
         self.resource_params.insert(param_name.to_string(), MaterialResource::UniformBuffer(buffer));
         self.bind_groups_dirty = true;
     }
@@ -200,7 +209,7 @@ impl Material {
                             resource: match resource {
                                 MaterialResource::Texture(view) => BindingResource::TextureView(view),
                                 MaterialResource::Sampler(smp) => BindingResource::Sampler(smp),
-                                MaterialResource::UniformBuffer(buf) => BindingResource::Buffer(buf.as_entire_buffer_binding()),
+                                MaterialResource::UniformBuffer(buf) => BindingResource::Buffer(buf.get_buffer_binding()),
                             },
                         };
                         entries.push(entry);
@@ -211,7 +220,7 @@ impl Material {
                         let ptr_id = match resource {
                             MaterialResource::Texture(view) => Arc::<wgpu::TextureView>::as_ptr(&view) as usize,
                             MaterialResource::Sampler(smp) => Arc::<wgpu::Sampler>::as_ptr(&smp) as usize,
-                            MaterialResource::UniformBuffer(buf) => Arc::<wgpu::Buffer>::as_ptr(&buf) as usize,
+                            MaterialResource::UniformBuffer(buf) => Arc::<UniformBuffer>::as_ptr(&buf) as usize,
                         };
                         resource_ids.push(ptr_id);
                     } else {

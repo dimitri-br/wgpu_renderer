@@ -17,7 +17,7 @@ struct Transform {
 
 // This uniform is in group(1), binding(0) just as an example.
 // You can choose whichever group/binding you like as long as your code matches it.
-@group(1) @binding(0)
+@group(0) @binding(0)
 var<uniform> uniforms: Transform;
 
 @vertex
@@ -40,14 +40,15 @@ struct FragmentOutput {
 }
 
 // Example texture + sampler for sampling.
-@group(0) @binding(0)
+@group(1) @binding(0)
 var color_texture: texture_2d<f32>;
-@group(0) @binding(1)
+@group(1) @binding(1)
 var color_sampler: sampler;
 
 @fragment
 fn fs_main(input: FragmentInput) -> FragmentOutput {
     var output: FragmentOutput;
     output.color = textureSample(color_texture, color_sampler, input.tex_coords);
+    //output.color = vec4(255.0, 0.0, 0.0, 0.0);
     return output;
 }

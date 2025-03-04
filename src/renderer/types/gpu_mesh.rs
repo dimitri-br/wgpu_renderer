@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use wgpu::{Device, Buffer, BufferUsages};
 use wgpu::util::DeviceExt;
-use crate::renderer::mesh::Mesh;
+use crate::renderer::types::mesh::Mesh;
 
 /// A single submesh in GPU memory
 pub struct GpuSubMesh {
@@ -72,7 +72,7 @@ impl GpuMesh {
             submeshes: gpu_submeshes,
         }
     }
-    
+
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
         for subm in &self.submeshes {
             pass.set_vertex_buffer(0, subm.vertex_buffer.slice(..));

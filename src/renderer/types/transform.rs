@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use crate::renderer::types::uniform::Uniform;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Zeroable, bytemuck::Pod)]
@@ -56,10 +57,14 @@ impl Transform{
     pub fn to_scale(&self) -> glam::Vec3{
         self.matrix.to_scale_rotation_translation().0
     }
+
+    pub fn update_uniforms(&self, uniforms: &wgpu::Buffer, queue: &wgpu::Queue){
+        queue.write_buffer(uniforms, 0, bytemuck::cast_slice(&[*self]));
+    }
 }
 
-impl Transform{
-    pub(crate) fn update_uniforms(&self, uniforms: &wgpu::Buffer, queue: &wgpu::Queue){
-        queue.write_buffer(&uniforms, 0, bytemuck::cast_slice(&[*self]));
+impl Uniform for Transform{
+    fn update_uniforms(&self, uniforms: &wgpu::Buffer, queue: &wgpu::Queue){
+        self.update_uniforms(uniforms, queue);
     }
 }

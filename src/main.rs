@@ -1,154 +1,17 @@
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::fs::read_to_string;
+use std::sync::Arc;
 use wgpu::*;
 use winit::event::*;
 use winit::event_loop::EventLoopBuilder;
 use winit::window::Window;
-use crate::renderer::material::Material;
-use crate::renderer::pipeline_manager::PipelineManager;
-use crate::renderer::shader_reflect::Shader;
+use renderer::State;
+use crate::renderer::types::gpu_mesh::GpuMesh;
+use crate::renderer::types::mesh::Mesh;
+use crate::renderer::types::sampler::SamplerParameters;
+use crate::renderer::types::transform::Transform;
+use crate::renderer::types::uniform::Uniform;
 
 mod renderer;
-
-use renderer::texture::Texture;
-use crate::renderer::bind_group_cache::BindGroupCache;
-use crate::renderer::gpu_mesh::GpuMesh;
-use crate::renderer::mesh::Mesh;
-use crate::renderer::transform::Transform;
-
-pub struct State {
-    pub device: Device,
-    pub queue: Queue,
-    pub surface: Surface<'static>,
-    pub surface_config: SurfaceConfiguration,
-
-    pipeline_manager: Arc<PipelineManager>,
-    bind_group_cache: Arc<BindGroupCache>,
-    shaders: RwLock<HashMap<String, Arc<Shader>>>,
-    textures: RwLock<HashMap<String, Arc<Texture>>>,
-    uniform_buffers: RwLock<HashMap<String, Arc<Buffer>>>,
-}
-
-impl State {
-    pub async fn new(window: Arc<Window>) -> Self {
-        // Create WGPU instance
-        let instance = Instance::new(&InstanceDescriptor {
-            backends: Backends::PRIMARY,
-            flags: InstanceFlags::empty(),
-            backend_options: Default::default(),
-        });
-
-        // Create surface
-        let surface = instance.create_surface(window.clone()).unwrap();
-
-        // Choose adapter
-        let adapter = instance.request_adapter(&RequestAdapterOptions {
-            power_preference: PowerPreference::HighPerformance,
-            force_fallback_adapter: false,
-            compatible_surface: Some(&surface),
-        }).await.unwrap();
-
-        // Request device/queue
-        let (device, queue) = adapter.request_device(
-            &DeviceDescriptor {
-                label: None,
-                required_features: Features::empty(),
-                required_limits: Limits::default(),
-                memory_hints: Default::default(),
-            },
-            None
-        ).await.unwrap();
-
-        // Create surface configuration
-        let size = window.inner_size();
-        let surface_format = TextureFormat::Bgra8UnormSrgb;
-        let surface_config = SurfaceConfiguration {
-            usage: TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width: size.width,
-            height: size.height,
-            present_mode: PresentMode::Fifo,
-            desired_maximum_frame_latency: 3,
-            alpha_mode: CompositeAlphaMode::Auto,
-            view_formats: vec![surface_format],
-        };
-
-        surface.configure(&device, &surface_config);
-
-        let pipeline_manager = Arc::new(PipelineManager::new(device.clone()));
-        let bind_group_cache = Arc::new(BindGroupCache::new(device.clone()));
-        let shaders = RwLock::new(HashMap::new());
-        let textures = RwLock::new(HashMap::new());
-        let uniform_buffers = RwLock::new(HashMap::new());
-
-        Self {
-            device,
-            queue,
-            surface,
-            surface_config,
-            pipeline_manager,
-            bind_group_cache,
-            shaders,
-            textures,
-            uniform_buffers,
-        }
-    }
-
-    pub fn resize(&mut self, width: u32, height: u32) {
-        if width > 0 && height > 0 {
-            self.surface_config.width = width;
-            self.surface_config.height = height;
-            self.surface.configure(&self.device, &self.surface_config);
-        }
-        else
-        {
-            log::warn!("Invalid window size: {}x{}", width, height);
-        }
-    }
-
-    /// Register a WGSL shader by name.
-    pub fn register_shader(&self, name: &str, wgsl_source: &str) {
-        // Create and analyze
-        let mut shader = Shader::new(self.device.clone(), wgsl_source);
-        shader.analyze().expect("Failed to analyze shader!");
-        self.shaders.write().unwrap().insert(name.to_string(), Arc::new(shader));
-    }
-
-    /// Retrieve a shader by name.
-    pub fn get_shader(&self, name: &str) -> Option<Arc<Shader>> {
-        self.shaders.read().unwrap().get(name).cloned()
-    }
-
-    /// Create a material that references a previously-registered shader.
-    pub fn create_material(&self, shader_name: &str) -> Material {
-        let shader = self.get_shader(shader_name)
-            .unwrap_or_else(|| panic!("No shader named '{}'", shader_name));
-        Material::new(shader, self.pipeline_manager.clone(), self.device.clone(), self.bind_group_cache.clone())
-    }
-
-    pub fn create_texture(&self, name: &str, bytes: &[u8]) -> Arc<Texture> {
-        let texture = Texture::load_from_bytes(&self.device, &self.queue, bytes);
-        self.textures.write().unwrap().insert(name.to_string(), Arc::new(texture));
-        self.textures.read().unwrap().get(name).unwrap().clone()
-    }
-
-    pub fn load_texture(&self, name: &str, path: &std::path::Path) -> Arc<Texture> {
-        let texture = Texture::load_from_file(&self.device, &self.queue, path);
-        self.textures.write().unwrap().insert(name.to_string(), Arc::new(texture));
-        self.textures.read().unwrap().get(name).unwrap().clone()
-    }
-
-    pub fn create_uniform_buffer(&self, name: &str, size: u64) -> Arc<Buffer> {
-        let buffer = self.device.create_buffer(&BufferDescriptor {
-            label: Some(name),
-            size,
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        self.uniform_buffers.write().unwrap().insert(name.to_string(), Arc::new(buffer));
-        self.uniform_buffers.read().unwrap().get(name).unwrap().clone()
-    }
-}
 
 fn main() {
     // Create event loop and window
@@ -162,16 +25,17 @@ fn main() {
 
     let mut state = pollster::block_on(State::new(window.clone()));
 
-    state.register_shader("main", include_str!("../shaders/shader.wgsl"));
+    state.register_shader("main", &*read_to_string("assets/shaders/shader.wgsl").unwrap());
 
     let mut material = state.create_material("main");
     material.set_cull_mode(Some(Face::Back));
     material.set_transparent(false);
+    material.set_front_face(FrontFace::Cw);
 
-    let texture = state.load_texture("texture", std::path::Path::new("assets/texture.png"));
+    let texture = state.load_texture("texture", std::path::Path::new("assets/capsule0.jpg"));
+
     material.set_texture("color_texture", texture.view.clone());
-    material.set_sampler("color_sampler", Arc::new(state.device.create_sampler(&SamplerDescriptor {
-        label: Some("Color Sampler"),
+    material.set_sampler("color_sampler", SamplerParameters{
         address_mode_u: AddressMode::Repeat,
         address_mode_v: AddressMode::Repeat,
         address_mode_w: AddressMode::Repeat,
@@ -179,24 +43,22 @@ fn main() {
         min_filter: FilterMode::Linear,
         mipmap_filter: FilterMode::Linear,
         lod_min_clamp: 0.0,
-        lod_max_clamp: 1000.0,
-        compare: None,
-        anisotropy_clamp: 1,
-        border_color: None,
-    })));
+        lod_max_clamp: 1.0,
+        ..Default::default()
+    });
 
-    let mesh = Mesh::load_obj(std::path::Path::new("assets/teapot.obj")).unwrap();
+    let mesh = Mesh::load_obj(std::path::Path::new("assets/capsule.obj")).unwrap();
     let gpu_mesh = GpuMesh::from_cpu_mesh(&state.device, &mesh);
 
-    let transform_uniform = state.create_uniform_buffer("Transform", std::mem::size_of::<Transform>() as u64);
+    let transform_uniform = state.create_uniform_buffer(std::mem::size_of::<Transform>() as u64);
     let mut transform = Transform::new();
     transform.set_transform(
-        glam::Vec3::new(0.0, 0.0, -5.0),
-        glam::Quat::from_euler(glam::EulerRot::XYZ, 0.0, 0.0, 0.0),
-        glam::Vec3::new(0.5, 0.5, 0.5)
+        glam::Vec3::new(0.0, 0.0, 1.0),
+        glam::Quat::from_euler(glam::EulerRot::XYZ, 45.0, 45.0, 45.0),
+        glam::Vec3::new(0.3, 0.3, 0.3)
     );
 
-    transform.update_uniforms(&transform_uniform, &state.queue);
+    transform_uniform.update(&transform);
 
     material.set_uniform("uniforms", transform_uniform.clone());
 

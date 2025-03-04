@@ -9,7 +9,7 @@ winit = { version = "0.29", features = ["rwh_05"] }
 glam = { version = "0.29.2", features = ["bytemuck"] }
 gltf = "1.4.1"
 pollster = "0.4.0"
-bytemuck = "1.21.0"
+bytemuck = { version = "1.21.0", features = ["derive"] }
 log = "0.4.22"
 naga = { version = "24.0.0", features = ["wgsl-in"] }
 env_logger = "0.11.6"

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::io::BufReader;
 use std::fs::File;
@@ -31,7 +32,13 @@ impl Mesh {
                 single_index: true, // unify indices across positions/normals/UV
                 ..Default::default()
             },
-            |p| tobj::load_mtl_buf(&mut BufReader::new(File::open(p).unwrap())),
+            |p| {
+                if let Ok(file) = File::open(p){
+                    return tobj::load_mtl_buf(&mut BufReader::new(file));
+                }
+
+                tobj::MTLLoadResult::Err(tobj::LoadError::GenericFailure)
+            },
         )?;
 
         if models.is_empty() {

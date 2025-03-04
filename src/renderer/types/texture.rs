@@ -2,13 +2,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 #[derive(Clone)]
-pub struct Texture{
+pub struct Texture {
     pub texture: Arc<wgpu::Texture>,
     pub view: Arc<wgpu::TextureView>,
 }
 
-impl Texture{
-    pub fn load_from_bytes(device: &wgpu::Device, queue: &wgpu::Queue, bytes: &[u8]) -> Self{
+impl Texture {
+    pub fn load_from_bytes(device: &wgpu::Device, queue: &wgpu::Queue, bytes: &[u8]) -> Self {
         let img = image::load_from_memory(bytes).unwrap().to_rgba8();
         let dimensions = img.dimensions();
         let size = wgpu::Extent3d {
@@ -27,7 +27,7 @@ impl Texture{
             view_formats: &[],
         });
         queue.write_texture(
-            wgpu::TexelCopyTextureInfo{
+            wgpu::TexelCopyTextureInfo {
                 texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
@@ -42,7 +42,7 @@ impl Texture{
             size,
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        Self{
+        Self {
             texture: Arc::new(texture),
             view: Arc::new(view),
         }
