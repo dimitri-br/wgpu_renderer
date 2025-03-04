@@ -3,3 +3,4 @@ pub mod pipeline_manager;
 pub mod material;
 pub mod texture;
 pub mod material_resource;
+pub mod bind_group_cache;

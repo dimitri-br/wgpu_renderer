@@ -5,7 +5,9 @@ use wgpu::{
     BlendState, ColorTargetState, BlendComponent, BlendFactor, BlendOperation,
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindingResource,
 };
-use log::error; // or warn, depending on your preference
+use log::error;
+use crate::renderer::bind_group_cache::{BindGroupCache, BindGroupKey};
+// or warn, depending on your preference
 
 use crate::renderer::material_resource::MaterialResource;
 use crate::renderer::pipeline_manager::PipelineManager;
@@ -47,19 +49,20 @@ pub struct Material {
     // For resource binding:
     resource_params: HashMap<String, MaterialResource>,
 
-    // Cached bind groups, matching the number of bind group layouts in the shader.
-    // If a bind group fails to build due to missing resources, store None.
-    cached_bind_groups: Vec<Option<Arc<BindGroup>>>,
+    // We’ll keep the global bind group cache in a field, or store it globally somewhere else.
+    bind_group_cache: Arc<BindGroupCache>,
 
-    // A "dirty" flag that tells us we need to rebuild bind groups.
+    // The final built bind groups, if any. We can store a vector or map from group index -> Arc<BindGroup>.
+    cached_bind_groups: Vec<Option<Arc<BindGroup>>>,
     bind_groups_dirty: bool,
 }
 
 impl Material {
-    pub fn new(
+    pub(crate) fn new(
         shader: Arc<Shader>,
         pipeline_manager: Arc<PipelineManager>,
         device: Arc<wgpu::Device>,
+        bind_group_cache: Arc<BindGroupCache>,
     ) -> Self {
         // Prepare a vector of empty bind group slots matching the number
         // of bind group layouts in the shader.
@@ -71,6 +74,7 @@ impl Material {
             pipeline_params: PipelineParams::default(),
             cached_pipeline: None,
             resource_params: HashMap::new(),
+            bind_group_cache,
             cached_bind_groups: vec![None; num_bind_groups],
             bind_groups_dirty: true,
         }
@@ -159,71 +163,6 @@ impl Material {
         &self.cached_bind_groups
     }
 
-    /// Rebuild the bind groups, storing them in `cached_bind_groups`.
-    /// If a resource is missing for a required binding, we log an error and store `None`.
-    fn rebuild_bind_groups(&mut self) {
-        self.bind_groups_dirty = false;
-
-        // Prepare a new vector for each group
-        let layouts = self.shader.get_bind_group_layouts();
-        let num_groups = layouts.len();
-        let mut new_bind_groups: Vec<Option<Arc<BindGroup>>> = Vec::with_capacity(num_groups);
-
-        // We'll iterate over each group index, gather resources, create a bind group if possible.
-        for (group_index, layout) in layouts.iter().enumerate() {
-            // Collect all wgpu::BindGroupEntry for this group
-            let mut entries = Vec::new();
-            let mut missing_resource = false;
-
-            // Filter the shader's binding info to those that belong to this group
-            for binding_info in self.shader.get_bindings().iter().filter(|b| b.group == group_index as u32) {
-                // The reflection might store an optional name for this binding
-                if let Some(binding_name) = &binding_info.name {
-                    // Look up the resource from `resource_params`
-                    if let Some(resource) = self.resource_params.get(binding_name) {
-                        // We have a resource for this binding
-                        let entry = BindGroupEntry {
-                            binding: binding_info.binding,
-                            resource: match resource {
-                                MaterialResource::Texture(view) => BindingResource::TextureView(view),
-                                MaterialResource::Sampler(smp) => BindingResource::Sampler(smp),
-                            },
-                        };
-                        entries.push(entry);
-                    } else {
-                        // Resource is missing
-                        error!(
-                            "Material is missing resource for binding '{}'. Group {} binding {} will be invalid.",
-                            binding_name, group_index, binding_info.binding
-                        );
-                        missing_resource = true;
-                    }
-                } else {
-                    // Binding info has no name? Possibly a built-in or something. 
-                    // If you expect all to have names, log or skip:
-                    error!("Binding in group {} has no name! Skipping...", group_index);
-                    missing_resource = true;
-                }
-            }
-
-            // If we discovered a missing resource, skip creating this bind group
-            if missing_resource {
-                new_bind_groups.push(None);
-            } else {
-                // Create the bind group
-                let bg = self.device.create_bind_group(&BindGroupDescriptor {
-                    label: Some("Material BindGroup"),
-                    layout: layout.as_ref(),
-                    entries: &entries,
-                });
-                new_bind_groups.push(Some(Arc::new(bg)));
-            }
-        }
-
-        // Store in the material
-        self.cached_bind_groups = new_bind_groups;
-    }
-    
     pub fn bind<'a>(&'a mut self, render_pass: &mut wgpu::RenderPass<'a>) {
         // Get the bind groups
         let bind_groups = self.get_bind_groups();
@@ -232,6 +171,72 @@ impl Material {
         for (index, bg) in bind_groups.iter().enumerate() {
             if let Some(bg) = bg {
                 render_pass.set_bind_group(index as u32, &**bg, &[]);
+            }
+        }
+    }
+
+    fn rebuild_bind_groups(&mut self) {
+        self.bind_groups_dirty = false;
+        let layouts = self.shader.get_bind_group_layouts();
+        let num_groups = layouts.len();
+
+        let shader_bindings = self.shader.get_bindings();
+
+        for (group_index, layout) in layouts.iter().enumerate() {
+            // Collect entries
+            let mut entries = Vec::new();
+            let mut resource_ids = Vec::new();
+            let mut missing_resource = false;
+
+            for b in shader_bindings.iter().filter(|b| b.group == group_index as u32) {
+                if let Some(name) = &b.name {
+                    if let Some(resource) = self.resource_params.get(name) {
+                        // We have a resource for this binding
+                        let entry = BindGroupEntry {
+                            binding: b.binding,
+                            resource: match resource {
+                                MaterialResource::Texture(view) => BindingResource::TextureView(view),
+                                MaterialResource::Sampler(smp) => BindingResource::Sampler(smp),
+                            },
+                        };
+                        entries.push(entry);
+
+                        // For hashing, store pointer addresses or resource IDs
+                        // You can store e.g. Arc::as_ptr(...) cast to usize
+                        // or store some ID from a resource manager.
+                        let ptr_id = match resource {
+                            MaterialResource::Texture(view) => Arc::<wgpu::TextureView>::as_ptr(&view) as usize,
+                            MaterialResource::Sampler(smp) => Arc::<wgpu::Sampler>::as_ptr(&smp) as usize,
+                        };
+                        resource_ids.push(ptr_id);
+                    } else {
+                        missing_resource = true;
+                        log::error!("Missing resource for binding '{}' in group {}", name, group_index);
+                    }
+                } else {
+                    // If no name is provided, skip or handle as you want
+                    missing_resource = true;
+                    log::error!("Binding in group {} has no name, skipping...", group_index);
+                }
+            }
+
+            if missing_resource || entries.is_empty() {
+                // If we can’t build this group, store None
+                self.cached_bind_groups[group_index] = None;
+            } else {
+                // Build the key
+                // Sort resource_ids if you want stable ordering, but here we assume
+                // the iteration order is stable for these specific bindings.
+                // If you like, do resource_ids.sort();
+                let key = BindGroupKey::new(layout.as_ref(), resource_ids);
+
+                // Ask the global cache for a bind group
+                let bg = self.bind_group_cache.get_or_create(
+                    layout.as_ref(),
+                    &entries,
+                    key,
+                );
+                self.cached_bind_groups[group_index] = Some(bg);
             }
         }
     }

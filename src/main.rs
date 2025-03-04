@@ -11,6 +11,7 @@ use crate::renderer::shader_reflect::Shader;
 mod renderer;
 
 use renderer::texture::Texture;
+use crate::renderer::bind_group_cache::BindGroupCache;
 
 pub struct State {
     pub device: Arc<Device>,
@@ -19,6 +20,7 @@ pub struct State {
     pub surface_config: SurfaceConfiguration,
 
     pipeline_manager: Arc<PipelineManager>,
+    bind_group_cache: Arc<BindGroupCache>,
     shaders: RwLock<HashMap<String, Arc<Shader>>>,
     textures: RwLock<HashMap<String, Arc<Texture>>>,
 }
@@ -72,6 +74,7 @@ impl State {
         surface.configure(&device, &surface_config);
 
         let pipeline_manager = Arc::new(PipelineManager::new(device.clone()));
+        let bind_group_cache = Arc::new(BindGroupCache::new(device.clone()));
         let shaders = RwLock::new(HashMap::new());
         let textures = RwLock::new(HashMap::new());
 
@@ -81,6 +84,7 @@ impl State {
             surface,
             surface_config,
             pipeline_manager,
+            bind_group_cache,
             shaders,
             textures,
         }
@@ -115,7 +119,7 @@ impl State {
     pub fn create_material(&self, shader_name: &str) -> Material {
         let shader = self.get_shader(shader_name)
             .unwrap_or_else(|| panic!("No shader named '{}'", shader_name));
-        Material::new(shader, self.pipeline_manager.clone(), self.device.clone())
+        Material::new(shader, self.pipeline_manager.clone(), self.device.clone(), self.bind_group_cache.clone())
     }
 
     pub fn create_texture(&self, name: &str, bytes: &[u8]) -> Arc<Texture> {
