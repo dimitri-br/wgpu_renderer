@@ -37,6 +37,8 @@ pub struct State {
     textures: RwLock<HashMap<String, Arc<Texture>>>,
     uniform_buffers: RwLock<Vec<Arc<UniformBuffer>>>,
 
+    pub depth_texture: Option<Texture>,
+
     camera: FpsCamera,
 
     global_data: Globals,
@@ -136,6 +138,8 @@ impl State {
 
         let delta_time = std::time::Instant::now();
 
+        let depth_texture = Some(Texture::new_screen_texture(&device, &queue, (surface_config.width, surface_config.height), wgpu::TextureFormat::Depth32Float));
+
         Self {
             device,
             queue,
@@ -147,6 +151,7 @@ impl State {
             shaders,
             textures,
             uniform_buffers,
+            depth_texture,
             camera: fps_camera,
             global_data,
             global_uniform_buffer,
@@ -201,6 +206,8 @@ impl State {
             self.surface_config.width = width;
             self.surface_config.height = height;
             self.surface.configure(&self.device, &self.surface_config);
+            self.depth_texture = Some(Texture::new_screen_texture(&self.device, &self.queue, (width, height), wgpu::TextureFormat::Depth32Float));
+
 
             // Update camera aspect ratio
             self.camera.set_aspect(width as f32 / height as f32);
@@ -257,7 +264,7 @@ impl State {
     }
 
     pub fn create_texture(&self, name: &str, bytes: &[u8]) -> Arc<Texture> {
-        let texture = Texture::load_from_bytes(&self.device, &self.queue, bytes);
+        let texture = Texture::load_from_bytes(&self.device, &self.queue, bytes,wgpu::TextureFormat::Rgba8UnormSrgb);
         self.textures
             .write()
             .unwrap()
@@ -266,7 +273,7 @@ impl State {
     }
 
     pub fn load_texture(&self, name: &str, path: &std::path::Path) -> Arc<Texture> {
-        let texture = Texture::load_from_file(&self.device, &self.queue, path);
+        let texture = Texture::load_from_file(&self.device, &self.queue, path,wgpu::TextureFormat::Rgba8UnormSrgb);
         self.textures
             .write()
             .unwrap()

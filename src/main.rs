@@ -37,6 +37,7 @@ fn main() {
     material.set_cull_mode(None);
     material.set_transparent(false);
     material.set_front_face(FrontFace::Cw);
+    material.set_depth(true);
 
     let texture = state.load_texture("texture", std::path::Path::new("assets/capsule0.jpg"));
 
@@ -110,6 +111,8 @@ fn main() {
 
                         let frame_view = frame.texture.create_view(&Default::default());
 
+                        let depth_view = state.depth_texture.as_ref().unwrap().view.clone();
+
 
                         // Create a command encoder
                         let mut encoder =
@@ -131,7 +134,18 @@ fn main() {
                                         store: StoreOp::Store,
                                     },
                                 })],
-                                depth_stencil_attachment: None,
+                                depth_stencil_attachment: Some(
+                                    RenderPassDepthStencilAttachment{
+                                        view: &depth_view,
+                                        depth_ops: Some(
+                                            Operations {
+                                                load: LoadOp::Clear(1.0),
+                                                store: StoreOp::Store,
+                                            }
+                                        ),
+                                        stencil_ops: None
+                                    }
+                                ),
                                 timestamp_writes: None,
                                 occlusion_query_set: None,
                             });

@@ -3,8 +3,7 @@ use log::{error, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use wgpu::{
-    BindGroup, BindGroupEntry, BindingResource, BlendComponent, BlendFactor, BlendOperation,
-    BlendState, Face, FrontFace, RenderPipeline, TextureView,
+    BindGroup, BindGroupEntry, BindingResource, BlendComponent, BlendFactor, BlendOperation, BlendState, DepthBiasState, DepthStencilState, Face, FrontFace, RenderPipeline, StencilState, TextureView
 };
 // or warn, depending on your preference
 
@@ -22,6 +21,7 @@ pub struct PipelineParams {
     pub transparent: bool,
     pub cull_mode: Option<Face>,
     pub front_face: FrontFace,
+    pub use_depth: bool
 }
 
 impl Default for PipelineParams {
@@ -30,6 +30,7 @@ impl Default for PipelineParams {
             transparent: false,
             cull_mode: Some(Face::Back),
             front_face: FrontFace::Ccw,
+            use_depth: true
         }
     }
 }
@@ -106,6 +107,13 @@ impl Material {
         }
     }
 
+    pub fn set_depth(&mut self, use_depth: bool){
+        if self.pipeline_params.use_depth != use_depth{
+            self.pipeline_params.use_depth = use_depth;
+            self.cached_pipeline = None;
+        }
+    }
+
     pub fn get_shader(&self) -> Arc<Shader> {
         self.shader.clone()
     }
@@ -143,6 +151,19 @@ impl Material {
                 primitive.cull_mode = self.pipeline_params.cull_mode;
                 // Front Face
                 primitive.front_face = self.pipeline_params.front_face;
+                desc.depth_stencil = if self.pipeline_params.use_depth {
+                    Some(
+                        DepthStencilState{
+                            format: wgpu::TextureFormat::Depth32Float,
+                            depth_write_enabled: true,
+                            depth_compare: wgpu::CompareFunction::LessEqual,
+                            stencil: StencilState::default(),
+                            bias: DepthBiasState::default()
+                        }
+                    )
+                }else{
+                    None
+                };
             },
         );
 

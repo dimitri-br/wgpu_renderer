@@ -200,7 +200,7 @@ impl PipelineManager {
         }
 
         // 6) Now reassign the possibly modified descriptor
-        descriptor = updated_descriptor;
+        descriptor.primitive = updated_descriptor.primitive;
 
         // 7) Finally, create the pipeline. The references in descriptor (including color_targets)
         //    only need to live until we exit this function, which is valid.
