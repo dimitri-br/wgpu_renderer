@@ -9,11 +9,8 @@ use crate::renderer::types::uniform::UniformBuffer;
 use glam::vec3;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use wgpu::{
-    Backends, BindGroup, CompositeAlphaMode, Device, DeviceDescriptor, Features, Instance,
-    InstanceDescriptor, InstanceFlags, Limits, PowerPreference, PresentMode, Queue,
-    RequestAdapterOptions, Surface, SurfaceConfiguration, TextureFormat, TextureUsages,
-};
+use shipyard::Unique;
+use wgpu::{Backends, BindGroup, Color, CommandEncoderDescriptor, CompositeAlphaMode, Device, DeviceDescriptor, Features, Instance, InstanceDescriptor, InstanceFlags, Limits, LoadOp, Operations, PowerPreference, PresentMode, Queue, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, RequestAdapterOptions, StoreOp, Surface, SurfaceConfiguration, TextureFormat, TextureUsages};
 use winit::event::KeyEvent;
 use winit::window::Window;
 
@@ -21,7 +18,10 @@ pub mod bind_group_cache;
 pub mod pipeline_manager;
 pub mod shader_reflect;
 pub mod types;
+pub mod components;
+pub mod systems;
 
+#[derive(Unique)]
 pub struct State {
     pub device: Device,
     pub queue: Queue,
@@ -73,8 +73,11 @@ impl State {
             .request_device(
                 &DeviceDescriptor {
                     label: None,
-                    required_features: Features::default(),
-                    required_limits: Limits::default(),
+                    required_features: Features::PUSH_CONSTANTS,
+                    required_limits: Limits{
+                        max_push_constant_size: 256,
+                        ..Default::default()
+                    },
                     memory_hints: wgpu::MemoryHints::Performance
                 },
                 None,
@@ -218,8 +221,6 @@ impl State {
 
     pub fn update(&mut self) {
         let dt = self.delta_time.elapsed().as_secs_f32();
-        println!("DT: {:?}", dt);
-        println!("FPS: {:?}", 1.0 / dt);
         self.camera.update(dt);
         self.global_data.update_from_camera(&self.camera);
         self.global_uniform_buffer.update(&self.global_data);

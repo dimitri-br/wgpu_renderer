@@ -68,7 +68,8 @@ impl Mesh {
             if !mesh_data.texcoords.is_empty() {
                 texcoords.reserve_exact(mesh_data.texcoords.len() / 2);
                 for chunk in mesh_data.texcoords.chunks_exact(2) {
-                    texcoords.push([chunk[0], chunk[1]]);
+                    // Invert the V coordinate
+                    texcoords.push([chunk[0], 1.0 - chunk[1]]);
                 }
             }
 

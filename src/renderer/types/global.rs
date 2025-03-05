@@ -1,3 +1,4 @@
+use bytemuck::{Pod, Zeroable};
 use crate::renderer::types::camera::Camera;
 use crate::renderer::types::uniform::Uniform;
 use wgpu::{Buffer, Queue};
@@ -36,3 +37,4 @@ impl Uniform for Globals {
         queue.write_buffer(buffer, 0, bytemuck::cast_slice(&[*self]));
     }
 }
+

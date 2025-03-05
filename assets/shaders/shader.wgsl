@@ -22,10 +22,8 @@ struct Transform {
 @group(0) @binding(0)
 var<uniform> global_data: GlobalData;
 
-// This uniform is in group(1), binding(0) just as an example.
-// You can choose whichever group/binding you like as long as your code matches it.
-@group(2) @binding(0)
-var<uniform> uniforms: Transform;
+
+var<push_constant> uniforms: Transform;
 
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {

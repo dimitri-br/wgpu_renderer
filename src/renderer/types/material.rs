@@ -1,7 +1,8 @@
 use crate::renderer::bind_group_cache::{BindGroupCache, BindGroupKey};
 use log::{error, warn};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
+use std::sync::atomic::AtomicBool;
 use wgpu::{
     BindGroup, BindGroupEntry, BindingResource, BlendComponent, BlendFactor, BlendOperation, BlendState, DepthBiasState, DepthStencilState, Face, FrontFace, RenderPipeline, StencilState, TextureView
 };
@@ -50,7 +51,7 @@ pub struct Material {
 
     // For pipeline creation:
     pipeline_params: PipelineParams,
-    cached_pipeline: Option<Arc<RenderPipeline>>,
+    cached_pipeline: RwLock<Option<Arc<RenderPipeline>>>,
 
     // For resource binding:
     resource_params: HashMap<String, MaterialResource>,
@@ -59,8 +60,8 @@ pub struct Material {
     bind_group_cache: Arc<BindGroupCache>,
 
     // The final built bind groups, if any. We can store a vector or map from group index -> Arc<BindGroup>.
-    cached_bind_group: Option<Arc<BindGroup>>,
-    bind_group_dirty: bool,
+    cached_bind_group: RwLock<Option<Arc<BindGroup>>>,
+    bind_group_dirty: AtomicBool,
 }
 
 impl Material {
@@ -75,11 +76,11 @@ impl Material {
             device,
             shader,
             pipeline_params: PipelineParams::default(),
-            cached_pipeline: None,
+            cached_pipeline: RwLock::new(None),
             resource_params: HashMap::new(),
             bind_group_cache,
-            cached_bind_group: None,
-            bind_group_dirty: true,
+            cached_bind_group: RwLock::new(None),
+            bind_group_dirty: AtomicBool::new(false),
         }
     }
 
@@ -89,28 +90,28 @@ impl Material {
     pub fn set_transparent(&mut self, enable: bool) {
         if self.pipeline_params.transparent != enable {
             self.pipeline_params.transparent = enable;
-            self.cached_pipeline = None;
+            self.cached_pipeline.write().unwrap().take();
         }
     }
 
     pub fn set_cull_mode(&mut self, mode: Option<Face>) {
         if self.pipeline_params.cull_mode != mode {
             self.pipeline_params.cull_mode = mode;
-            self.cached_pipeline = None;
+            self.cached_pipeline.write().unwrap().take();
         }
     }
 
     pub fn set_front_face(&mut self, face: FrontFace) {
         if self.pipeline_params.front_face != face {
             self.pipeline_params.front_face = face;
-            self.cached_pipeline = None;
+            self.cached_pipeline.write().unwrap().take();
         }
     }
 
     pub fn set_depth(&mut self, use_depth: bool){
         if self.pipeline_params.use_depth != use_depth{
             self.pipeline_params.use_depth = use_depth;
-            self.cached_pipeline = None;
+            self.cached_pipeline.write().unwrap().take();
         }
     }
 
@@ -120,9 +121,9 @@ impl Material {
 
     /// Build or retrieve the pipeline from the pipeline manager.
     /// This is typically called during rendering.
-    pub fn get_pipeline(&mut self) -> Arc<RenderPipeline> {
-        if let Some(pipe) = &self.cached_pipeline {
-            return pipe.clone();
+    pub fn get_pipeline(&self) -> Arc<RenderPipeline> {
+        if let Some(pipe) = self.cached_pipeline.read().unwrap().clone() {
+            return pipe;
         }
 
         let pipeline = self.pipeline_manager.create_pipeline_with_config(
@@ -167,7 +168,7 @@ impl Material {
             },
         );
 
-        self.cached_pipeline = Some(pipeline.clone());
+        self.cached_pipeline.write().unwrap().replace(pipeline.clone());
         pipeline
     }
 
@@ -177,7 +178,7 @@ impl Material {
     pub fn set_texture(&mut self, param_name: &str, view: Arc<TextureView>) {
         self.resource_params
             .insert(param_name.to_string(), MaterialResource::Texture(view));
-        self.bind_group_dirty = true;
+        self.bind_group_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn set_sampler(&mut self, param_name: &str, sampler_parameters: SamplerParameters) {
@@ -185,7 +186,7 @@ impl Material {
             param_name.to_string(),
             MaterialResource::Sampler(Arc::new(sampler_parameters.create_sampler(&self.device))),
         );
-        self.bind_group_dirty = true;
+        self.bind_group_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn set_uniform(&mut self, param_name: &str, buffer: Arc<UniformBuffer>) {
@@ -193,7 +194,7 @@ impl Material {
             param_name.to_string(),
             MaterialResource::UniformBuffer(buffer),
         );
-        self.bind_group_dirty = true;
+        self.bind_group_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     // -----------------
@@ -202,15 +203,16 @@ impl Material {
 
     /// Returns an immutable slice of the cached bind groups.
     /// If `bind_groups_dirty` is true, we rebuild them first.
-    pub fn get_bind_groups(&mut self) -> Option<Arc<BindGroup>> {
-        if self.bind_group_dirty {
+    pub fn get_bind_groups(&self) -> Option<Arc<BindGroup>> {
+        if self.bind_group_dirty.load(std::sync::atomic::Ordering::Relaxed) {
             self.rebuild_bind_group();
         }
-        self.cached_bind_group.clone()
+
+        self.cached_bind_group.read().unwrap().clone()
     }
 
-    pub fn bind<'a>(&'a mut self, render_pass: &mut wgpu::RenderPass<'a>) {
-        if self.bind_group_dirty {
+    pub fn bind<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+        if self.bind_group_dirty.load(std::sync::atomic::Ordering::Relaxed) {
             self.rebuild_bind_group();
             warn!("Rebuilding bind group during bind");
         }
@@ -222,8 +224,8 @@ impl Material {
         }
     }
 
-    fn rebuild_bind_group(&mut self) {
-        self.bind_group_dirty = false;
+    fn rebuild_bind_group(&self) {
+        self.bind_group_dirty.store(false, std::sync::atomic::Ordering::Relaxed);
         let layout = match self
             .shader
             .get_bind_group_layout(MATERIAL_GROUP_INDEX as u64)
@@ -289,7 +291,7 @@ impl Material {
 
         if missing_resource || entries.is_empty() {
             // If we can’t build this group, store None
-            self.cached_bind_group = None;
+            self.cached_bind_group.write().unwrap().take();
         } else {
             // Build the key
             // Sort resource_ids if you want stable ordering, but here we assume
@@ -301,7 +303,7 @@ impl Material {
             let bg = self
                 .bind_group_cache
                 .get_or_create(layout.as_ref(), &entries, key);
-            self.cached_bind_group = Some(bg);
+            self.cached_bind_group.write().unwrap().replace(bg);
         }
     }
 }

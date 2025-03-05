@@ -1,5 +1,3 @@
-#![feature(duration_millis_float)]
-
 use crate::renderer::bind_group_cache::BindGroupKey;
 use crate::renderer::types::gpu_mesh::GpuMesh;
 use crate::renderer::types::mesh::Mesh;
@@ -8,11 +6,16 @@ use crate::renderer::types::transform::Transform;
 use crate::renderer::types::uniform::UniformBuffer;
 use renderer::State;
 use std::fs::read_to_string;
+use std::os::macos::raw::stat;
 use std::sync::Arc;
+use shipyard::World;
 use wgpu::*;
 use winit::event::*;
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
-use winit::window::Window;
+use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::window::{CursorGrabMode, Window};
+use crate::renderer::components::{MaterialComponent, MeshComponent, TransformComponent};
+use crate::renderer::systems::{handle_keyboard_input, handle_mouse_input, render_system, resize_system, update_system};
 
 mod renderer;
 
@@ -60,32 +63,33 @@ fn main() {
     let mesh = Mesh::load_obj(std::path::Path::new("assets/capsule.obj")).unwrap();
     let gpu_mesh = GpuMesh::from_cpu_mesh(&state.device, &mesh);
 
-    let transform_uniform = state.create_uniform_buffer(std::mem::size_of::<Transform>() as u64);
     let mut transform = Transform::new();
     transform.set_transform(
         glam::Vec3::new(0.0, 0.0, 1.0),
-        glam::Quat::from_euler(glam::EulerRot::XYZ, 45.0, 45.0, 45.0),
+        glam::Quat::from_euler(glam::EulerRot::XYZ, -90.0, 45.0, 0.0),
         glam::Vec3::new(0.3, 0.3, 0.3),
     );
 
-    transform_uniform.update(&transform);
+    let mut world = World::new();
 
-    let transform_uniform_bg_entry = BindGroupEntry {
-        binding: 0,
-        resource: BindingResource::Buffer(transform_uniform.get_buffer_binding()),
+    world.add_unique(state);
+
+    let mesh_comp = MeshComponent{
+        mesh: Arc::new(gpu_mesh),
+    };
+    let material_comp = MaterialComponent{
+        material: Arc::new(material),
+    };
+    let transform_comp = TransformComponent{
+        transform
     };
 
-    let shader = material.get_shader();
-    let layout = shader.get_bind_group_layout(2).unwrap();
-    let key = BindGroupKey::new(
-        layout,
-        vec![Arc::<UniformBuffer>::as_ptr(&transform_uniform) as usize],
-    );
-    let bg = state.bind_group_cache.get_or_create(
-        layout,
-        &vec![transform_uniform_bg_entry.clone()],
-        key,
-    );
+    // Spawn new entity with the components
+    let entity = world.add_entity((mesh_comp, material_comp, transform_comp));
+
+    // Capture the mouse
+    window.set_cursor_grab(CursorGrabMode::Locked).unwrap();
+    window.set_cursor_visible(false);
 
     // Run the event loop
     event_loop
@@ -97,86 +101,37 @@ fn main() {
                         tgt.exit();
                     }
                     WindowEvent::Resized(size) => {
-                        state.resize(size.width, size.height);
-                    }
-                    WindowEvent::RedrawRequested => {
-                        // Acquire next swapchain frame
-                        let frame = match state.surface.get_current_texture() {
-                            Ok(frame) => frame,
-                            Err(_e) => {
-                                // reconfigure or skip
-                                return;
-                            }
-                        };
-
-                        let frame_view = frame.texture.create_view(&Default::default());
-
-                        let depth_view = state.depth_texture.as_ref().unwrap().view.clone();
-
-
-                        // Create a command encoder
-                        let mut encoder =
-                            state
-                                .device
-                                .create_command_encoder(&CommandEncoderDescriptor {
-                                    label: Some("Main Command Encoder"),
-                                });
-
-
-                        {
-                            let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                                label: Some("Render Pass"),
-                                color_attachments: &[Some(RenderPassColorAttachment {
-                                    view: &frame_view,
-                                    resolve_target: None,
-                                    ops: Operations {
-                                        load: LoadOp::Load,
-                                        store: StoreOp::Store,
-                                    },
-                                })],
-                                depth_stencil_attachment: Some(
-                                    RenderPassDepthStencilAttachment{
-                                        view: &depth_view,
-                                        depth_ops: Some(
-                                            Operations {
-                                                load: LoadOp::Clear(1.0),
-                                                store: StoreOp::Store,
-                                            }
-                                        ),
-                                        stencil_ops: None
-                                    }
-                                ),
-                                timestamp_writes: None,
-                                occlusion_query_set: None,
-                            });
-
-                            rpass.set_pipeline(&material.get_pipeline());
-
-                            rpass.set_bind_group(0, &*state.global_bind_group, &[]);
-
-                            material.bind(&mut rpass);
-
-                            rpass.set_bind_group(2, &*bg, &[]);
-
-                            gpu_mesh.draw(&mut rpass);
-                        }
-
-                        // Submit command buffers
-                        state.queue.submit(std::iter::once(encoder.finish()));
-                        frame.present();
+                        world.run_with_data(resize_system, (size.width, size.height));
                     }
                     WindowEvent::KeyboardInput { event, .. } => {
-                        state.handle_keyboard(event);
+                        world.run_with_data(handle_keyboard_input, event.clone());
+
+                        match event.physical_key{
+                            PhysicalKey::Code(code) => {
+                                match code {
+                                    KeyCode::Escape => {
+                                        tgt.exit();
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            _ => {
+                                // Ignore non-code keys
+                            }
+                        }
+                    }
+                    WindowEvent::RedrawRequested => {
+                        world.run_with_data(render_system, &world);
                     }
                     _ => {}
                 },
-                winit::event::Event::DeviceEvent { event, .. } => {
-                    if let winit::event::DeviceEvent::MouseMotion { delta } = event {
-                        state.handle_mouse(delta);
+                Event::DeviceEvent { event, .. } => {
+                    if let DeviceEvent::MouseMotion { delta } = event {
+                        world.run_with_data(handle_mouse_input, delta);
                     }
                 }
                 Event::AboutToWait => {
-                    state.update();
+                    world.run(update_system);
                     window.request_redraw();
                 }
                 _ => {}

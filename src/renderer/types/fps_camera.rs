@@ -36,6 +36,8 @@ pub struct FpsCamera {
     // For accumulating mouse deltas
     pub yaw_delta: f32,
     pub pitch_delta: f32,
+
+    dirty: bool, // Whether the camera has moved
 }
 
 impl FpsCamera {
@@ -74,6 +76,7 @@ impl FpsCamera {
 
             yaw_delta: 0.0,
             pitch_delta: 0.0,
+            dirty: true,
         }
     }
 
@@ -102,6 +105,7 @@ impl FpsCamera {
             KeyCode::ShiftLeft => self.down_pressed = pressed,
             _ => {}
         }
+        self.dirty = true;
     }
 
     /// Handle mouse movement deltas.
@@ -115,10 +119,15 @@ impl FpsCamera {
     pub fn process_mouse(&mut self, dx: f32, dy: f32) {
         self.yaw_delta -= dx * self.mouse_sensitivity;
         self.pitch_delta += -dy * self.mouse_sensitivity; // Usually invert Y
+        self.dirty = true;
     }
 
     /// Update camera each frame. `dt` is elapsed time (seconds).
     pub fn update(&mut self, dt: f32) {
+        if !self.dirty {
+            return;
+        }
+        
         // 1) Apply yaw/pitch deltas
         self.yaw += self.yaw_delta;
         self.pitch += self.pitch_delta;
