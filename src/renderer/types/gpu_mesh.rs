@@ -78,7 +78,7 @@ impl GpuMesh {
             pass.set_vertex_buffer(0, subm.vertex_buffer.slice(..));
             if let Some(ibuf) = &subm.index_buffer {
                 pass.set_index_buffer(ibuf.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..subm.index_count, 0, 0..subm.vertex_count);
+                pass.draw_indexed(0..subm.index_count, 0, 0..1);
             } else {
                 pass.draw(0..subm.vertex_count, 0..1);
             }

@@ -34,9 +34,9 @@ fn main() {
     );
 
     let mut material = state.create_material("main");
-    material.set_cull_mode(Some(Face::Back));
+    material.set_cull_mode(None);
     material.set_transparent(false);
-    material.set_front_face(FrontFace::Ccw);
+    material.set_front_face(FrontFace::Cw);
 
     let texture = state.load_texture("texture", std::path::Path::new("assets/capsule0.jpg"));
 
@@ -99,7 +99,6 @@ fn main() {
                         state.resize(size.width, size.height);
                     }
                     WindowEvent::RedrawRequested => {
-                        state.update();
                         // Acquire next swapchain frame
                         let frame = match state.surface.get_current_texture() {
                             Ok(frame) => frame,
@@ -109,6 +108,9 @@ fn main() {
                             }
                         };
 
+                        let frame_view = frame.texture.create_view(&Default::default());
+
+
                         // Create a command encoder
                         let mut encoder =
                             state
@@ -117,7 +119,6 @@ fn main() {
                                     label: Some("Main Command Encoder"),
                                 });
 
-                        let frame_view = frame.texture.create_view(&Default::default());
 
                         {
                             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -161,6 +162,7 @@ fn main() {
                     }
                 }
                 Event::AboutToWait => {
+                    state.update();
                     window.request_redraw();
                 }
                 _ => {}

@@ -88,10 +88,10 @@ impl State {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: PresentMode::Fifo,
+            present_mode: PresentMode::Immediate,
             desired_maximum_frame_latency: 3,
             alpha_mode: CompositeAlphaMode::Auto,
-            view_formats: vec![surface_format],
+            view_formats: vec![],
         };
 
         surface.configure(&device, &surface_config);
