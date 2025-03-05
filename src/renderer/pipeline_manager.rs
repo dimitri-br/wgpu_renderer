@@ -1,16 +1,13 @@
 //! pipeline_manager.rs
 //! Manages pipeline layouts and pipelines, caching them based on reflection data.
 
+use crate::renderer::shader_reflect::Shader;
 use std::{
     collections::HashMap,
     hash::{Hash, Hasher},
     sync::{Arc, RwLock},
 };
-use wgpu::{
-    Device, PipelineLayout, RenderPipeline, PushConstantRange, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, ShaderStages,
-};
-use crate::renderer::shader_reflect::Shader;
+use wgpu::{Device, PipelineLayout, PushConstantRange, RenderPipeline};
 
 // The closure type now takes three mut references:
 //   1) The pipeline descriptor
@@ -88,15 +85,16 @@ impl PipelineLayoutManager {
         }
 
         // Not found, build it
-        let bgl: Vec<_> = shader
-            .get_bind_group_layouts();
+        let bgl: Vec<_> = shader.get_bind_group_layouts();
         let bgl_refs = bgl.iter().map(|bgl| bgl.as_ref()).collect::<Vec<_>>();
 
-        let pipeline_layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("PipelineLayout"),
-            bind_group_layouts: &bgl_refs,
-            push_constant_ranges: &key.push_constant_ranges,
-        });
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("PipelineLayout"),
+                bind_group_layouts: &bgl_refs,
+                push_constant_ranges: &key.push_constant_ranges,
+            });
         let layout_arc = Arc::new(pipeline_layout);
 
         // Insert
@@ -149,10 +147,16 @@ impl PipelineManager {
         }
 
         // 2) Compile the shader and gather reflection data
-        let module = shader.compile(&self.device).expect("Shader compilation failed");
-        let vertex_entry = shader.get_vertex_entry_point().unwrap_or_else(|| "main".to_string());
-        let fragment_entry = shader.get_fragment_entry_point().unwrap_or_else(|| "main".to_string());
-        let mut color_targets = shader.get_color_targets();
+        let module = shader
+            .compile(&self.device)
+            .expect("Shader compilation failed");
+        let vertex_entry = shader
+            .get_vertex_entry_point()
+            .unwrap_or_else(|| "main".to_string());
+        let fragment_entry = shader
+            .get_fragment_entry_point()
+            .unwrap_or_else(|| "main".to_string());
+        let color_targets = shader.get_color_targets();
 
         let layout = (*self.layout_manager.get_layout(&shader)).clone();
         // 3) Build the pipeline descriptor. Notice that color_targets is a local Vec, so we
@@ -184,13 +188,17 @@ impl PipelineManager {
 
         let mut updated_color_targets = color_targets.clone();
         let mut updated_descriptor = descriptor.clone();
-        config_fn(&mut descriptor, &mut updated_color_targets, &mut updated_descriptor.primitive);
+        config_fn(
+            &mut descriptor,
+            &mut updated_color_targets,
+            &mut updated_descriptor.primitive,
+        );
 
         // 5) Now that everything is set, reassign the possibly modified color_targets
         if let Some(fragment) = &mut descriptor.fragment {
             fragment.targets = &updated_color_targets;
         }
-        
+
         // 6) Now reassign the possibly modified descriptor
         descriptor = updated_descriptor;
 
@@ -210,7 +218,7 @@ impl PipelineManager {
                 return pipe.clone();
             }
         }
-        let pipeline = self.create_pipeline_with_config(shader.clone(), |_,_,_| {});
+        let pipeline = self.create_pipeline_with_config(shader.clone(), |_, _, _| {});
         let mut write_map = self.pipelines.write().unwrap();
         write_map.insert(key, pipeline.clone());
         pipeline

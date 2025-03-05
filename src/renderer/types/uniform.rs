@@ -2,7 +2,7 @@ pub trait Uniform {
     fn update_uniforms(&self, uniforms: &wgpu::Buffer, queue: &wgpu::Queue);
 }
 
-#[derive(Debug,Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UniformBuffer {
     device: wgpu::Device,
     queue: wgpu::Queue,

@@ -1,3 +1,7 @@
+struct GlobalData{
+    view_proj: mat4x4<f32>,
+}
+
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normals: vec3<f32>,
@@ -15,16 +19,19 @@ struct Transform {
     mvp: mat4x4<f32>,
 }
 
+@group(0) @binding(0)
+var<uniform> global_data: GlobalData;
+
 // This uniform is in group(1), binding(0) just as an example.
 // You can choose whichever group/binding you like as long as your code matches it.
-@group(0) @binding(0)
+@group(2) @binding(0)
 var<uniform> uniforms: Transform;
 
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
     // Multiply position by the MVP matrix to apply transformations
-    output.position = uniforms.mvp * vec4<f32>(input.position, 1.0);
+    output.position = global_data.view_proj * uniforms.mvp * vec4<f32>(input.position, 1.0);
 
     // Pass tex coords through to the fragment stage
     output.tex_coords = input.tex_coords;

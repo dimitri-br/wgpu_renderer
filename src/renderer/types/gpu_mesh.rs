@@ -1,7 +1,7 @@
-use std::sync::Arc;
-use wgpu::{Device, Buffer, BufferUsages};
-use wgpu::util::DeviceExt;
 use crate::renderer::types::mesh::Mesh;
+use std::sync::Arc;
+use wgpu::util::DeviceExt;
+use wgpu::{Buffer, BufferUsages, Device};
 
 /// A single submesh in GPU memory
 pub struct GpuSubMesh {

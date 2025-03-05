@@ -1,7 +1,6 @@
-use std::collections::HashMap;
-use std::path::Path;
-use std::io::BufReader;
 use std::fs::File;
+use std::io::BufReader;
+use std::path::Path;
 
 /// A single submesh containing positions, normals, texcoords, and indices.
 #[derive(Debug)]
@@ -33,7 +32,7 @@ impl Mesh {
                 ..Default::default()
             },
             |p| {
-                if let Ok(file) = File::open(p){
+                if let Ok(file) = File::open(p) {
                     return tobj::load_mtl_buf(&mut BufReader::new(file));
                 }
 

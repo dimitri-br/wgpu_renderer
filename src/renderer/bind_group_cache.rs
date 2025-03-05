@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 use std::hash::{Hash, Hasher};
-use wgpu::{Device, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout};
+use std::sync::{Arc, RwLock};
+use wgpu::{BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, Device};
 
 /// A unique key that represents a single bind group configuration:
 /// - The layout pointer

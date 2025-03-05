@@ -1,8 +1,12 @@
-use naga::{front::wgsl, ScalarKind, ShaderStage, StorageFormat, TypeInner, VectorSize};
-use std::{collections::BTreeMap, num::NonZeroU32, sync::Arc};
-use std::hash::{Hash, Hasher};
 use log::error;
-use wgpu::{RenderPipeline, BindingType, BufferBindingType, ColorTargetState, Device, PushConstantRange, ShaderStages, StorageTextureAccess, TextureFormat, VertexBufferLayout, VertexFormat, BindGroupLayout};
+use naga::{ScalarKind, ShaderStage, StorageFormat, TypeInner, VectorSize, front::wgsl};
+use std::hash::{Hash, Hasher};
+use std::{collections::BTreeMap, num::NonZeroU32, sync::Arc};
+use wgpu::{
+    BindGroupLayout, BindingType, BufferBindingType, ColorTargetState, Device, PushConstantRange,
+    RenderPipeline, ShaderStages, StorageTextureAccess, TextureFormat, VertexBufferLayout,
+    VertexFormat,
+};
 
 /// Represents a single binding in a shader.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -26,7 +30,7 @@ pub(crate) struct Shader {
     color_targets: Vec<Option<ColorTargetState>>, // Color target configurations for the fragment shader
     vertex_buffer_layouts: BTreeMap<u64, Vec<wgpu::VertexAttribute>>, // Vertex buffer layouts indexed by buffer ID
     push_constant_ranges: Vec<PushConstantRange>, // Push constant ranges for the shader
-    shader_source: String, // Original WGSL shader source code
+    shader_source: String,                        // Original WGSL shader source code
 }
 
 impl Shader {
@@ -76,8 +80,8 @@ impl Shader {
         self.compile(&self.device.clone())?;
 
         // Step 2: Parse the shader source using Naga to obtain the shader module (AST).
-        let module = wgsl::parse_str(&self.shader_source)
-            .map_err(|_| "Failed to parse shader source")?;
+        let module =
+            wgsl::parse_str(&self.shader_source).map_err(|_| "Failed to parse shader source")?;
 
         // Step 3: Extract entry points (vertex and fragment shader entry points).
         self.extract_entry_points(&module);
@@ -174,7 +178,7 @@ impl Shader {
     /// # Returns
     ///
     /// A vector of `PushConstantRange` configurations.
-    pub fn get_push_constant_ranges(&self) -> Vec<PushConstantRange>{
+    pub fn get_push_constant_ranges(&self) -> Vec<PushConstantRange> {
         self.push_constant_ranges.clone()
     }
 
@@ -256,7 +260,10 @@ impl Shader {
             // Check if the global variable has binding information.
             if let Some(binding) = &global.binding {
                 // Retrieve the type of the global variable.
-                let ty = module.types.get_handle(global.ty).map_err(|_| "Invalid type handle")?;
+                let ty = module
+                    .types
+                    .get_handle(global.ty)
+                    .map_err(|_| "Invalid type handle")?;
 
                 // Initialize array count to 1 by default.
                 let mut array_count = NonZeroU32::new(1).ok_or("Invalid array count")?;
@@ -325,6 +332,13 @@ impl Shader {
                     ty: binding.ty.clone(),
                     count: binding.count,
                 });
+        }
+
+        // Check if we have each group from 0 - n, where n is the largest group index.
+        // If we're missing any, we need to insert empty layouts to avoid bind group layout creation errors.
+        let max_group = layouts_map.keys().max().cloned().unwrap_or(0);
+        for group in 0..=max_group {
+            layouts_map.entry(group).or_default();
         }
 
         // Create a bind group layout for each group and store it in the layouts map.
@@ -473,9 +487,7 @@ impl Shader {
                             2 => VectorSize::Bi,
                             3 => VectorSize::Tri,
                             4 => VectorSize::Quad,
-                            _ => {
-                                return Err("Unsupported scalar width")
-                            }
+                            _ => return Err("Unsupported scalar width"),
                         };
                         let format = self.map_vector_to_vertex_format(size, scalar)?;
                         attributes.push(wgpu::VertexAttribute {
@@ -503,23 +515,29 @@ impl Shader {
         Ok(vertex_inputs)
     }
 
-    fn extract_push_constant_ranges(&self, module: &naga::Module) -> Result<Vec<PushConstantRange>, &'static str> {
+    fn extract_push_constant_ranges(
+        &self,
+        module: &naga::Module,
+    ) -> Result<Vec<PushConstantRange>, &'static str> {
         let mut push_constant_ranges = Vec::new();
         let mut current_offset = 0;
-        for (_, global) in module.global_variables.iter(){
-            if global.space == naga::AddressSpace::PushConstant{
-                let ty = module.types.get_handle(global.ty).map_err(|_| "Invalid type handle")?;
+        for (_, global) in module.global_variables.iter() {
+            if global.space == naga::AddressSpace::PushConstant {
+                let ty = module
+                    .types
+                    .get_handle(global.ty)
+                    .map_err(|_| "Invalid type handle")?;
                 // We need to figure out the range of the push constant
                 // This is a bit tricky because we need to know the size of the type
                 let size = self.map_binding_to_size(module, ty);
-                if let Some(size) = size{
-                    let push_constant_range = PushConstantRange{
+                if let Some(size) = size {
+                    let push_constant_range = PushConstantRange {
                         stages: ShaderStages::all(),
-                        range: current_offset..current_offset+size
+                        range: current_offset..current_offset + size,
                     };
                     push_constant_ranges.push(push_constant_range);
                     current_offset += size;
-                }else{
+                } else {
                     error!("Failed to determine size of push constant range");
                     return Err("Failed to determine size of push constant range");
                 }
@@ -583,9 +601,7 @@ impl Shader {
                             }
                             ScalarKind::Sint => wgpu::TextureSampleType::Sint,
                             ScalarKind::Uint => wgpu::TextureSampleType::Uint,
-                            _ => {
-                                return Err("Unsupported texture sample type")
-                            }
+                            _ => return Err("Unsupported texture sample type"),
                         };
                         BindingType::Texture {
                             sample_type,
@@ -611,9 +627,7 @@ impl Shader {
                             StorageFormat::R8Unorm => TextureFormat::R8Unorm,
                             // Add additional storage format mappings as needed.
                             StorageFormat::Bgra8Unorm => TextureFormat::Bgra8UnormSrgb,
-                            _ => {
-                                return Err("Unsupported storage format: {:?}")
-                            }
+                            _ => return Err("Unsupported storage format: {:?}"),
                         };
 
                         BindingType::StorageTexture {
@@ -660,38 +674,38 @@ impl Shader {
             _ => {
                 error!("Unsupported binding type: {:?}", binding_type.inner);
                 Err("Unsupported binding type")
-            },
+            }
         }
     }
 
     fn map_binding_to_size(&self, module: &naga::Module, binding_type: &naga::Type) -> Option<u32> {
         match &binding_type.inner {
-            TypeInner::Scalar(scalar) => {
-                match scalar.width {
-                    2 => Some(2),
-                    3 => Some(3),
-                    4 => Some(4),
-                    _ => {
-                        error!("Unsupported scalar width: {:?}", scalar.width);
-                        None
-                    }
+            TypeInner::Scalar(scalar) => match scalar.width {
+                2 => Some(2),
+                3 => Some(3),
+                4 => Some(4),
+                _ => {
+                    error!("Unsupported scalar width: {:?}", scalar.width);
+                    None
                 }
-            }
-            TypeInner::Vector { size, .. } => {
-                match size {
-                    VectorSize::Bi => Some(2),
-                    VectorSize::Tri => Some(3),
-                    VectorSize::Quad => Some(4),
-                }
-            }
-            TypeInner::Matrix { columns, rows, scalar} => {
+            },
+            TypeInner::Vector { size, .. } => match size {
+                VectorSize::Bi => Some(2),
+                VectorSize::Tri => Some(3),
+                VectorSize::Quad => Some(4),
+            },
+            TypeInner::Matrix {
+                columns,
+                rows,
+                scalar,
+            } => {
                 let scalar_width = scalar.width;
-                let columns = match columns{
+                let columns = match columns {
                     VectorSize::Bi => 2,
                     VectorSize::Tri => 3,
                     VectorSize::Quad => 4,
                 };
-                let rows = match rows{
+                let rows = match rows {
                     VectorSize::Bi => 2,
                     VectorSize::Tri => 3,
                     VectorSize::Quad => 4,
@@ -701,8 +715,11 @@ impl Shader {
             }
             TypeInner::Struct { members, .. } => {
                 let mut size = 0;
-                for member in members{
-                    let member_ty = module.types.get_handle(member.ty).expect("Invalid type handle");
+                for member in members {
+                    let member_ty = module
+                        .types
+                        .get_handle(member.ty)
+                        .expect("Invalid type handle");
                     let member_size = self.map_binding_to_size(module, member_ty)?;
                     size += member_size;
                 }
@@ -711,7 +728,7 @@ impl Shader {
             TypeInner::Array { base, size, stride } => {
                 let base_ty = module.types.get_handle(*base).expect("Invalid type handle");
                 let base_size = self.map_binding_to_size(module, base_ty)?;
-                let size = match size{
+                let size = match size {
                     naga::ArraySize::Constant(size) => *size,
                     _ => {
                         error!("Unsupported array size");
@@ -720,12 +737,8 @@ impl Shader {
                 };
                 Some(base_size * size.get())
             }
-            TypeInner::Image {..} => {
-                Some(1)
-            }
-            TypeInner::Sampler {..} => {
-                Some(1)
-            }
+            TypeInner::Image { .. } => Some(1),
+            TypeInner::Sampler { .. } => Some(1),
             _ => {
                 error!("Unsupported binding type: {:?}", binding_type.inner);
                 None
@@ -791,14 +804,14 @@ impl Shader {
             (VectorSize::Tri, ScalarKind::Uint) => Ok(VertexFormat::Uint32x3),
             (VectorSize::Quad, ScalarKind::Uint) => Ok(VertexFormat::Uint32x4),
             // Extend this mapping based on your vertex input requirements.
-            _ =>{
+            _ => {
                 error!("Unsupported vertex format: {:?}, {:?}", size, scalar.kind);
                 Err("Unsupported vertex format")
             }
         }
     }
-    
-    pub fn hash_to_string(&self) -> String{
+
+    pub fn hash_to_string(&self) -> String {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.hash(&mut hasher);
         format!("{:x}", hasher.finish())
@@ -861,8 +874,7 @@ impl std::fmt::Display for Shader {
     }
 }
 
-
-impl Into<RenderPipeline> for Shader{
+impl Into<RenderPipeline> for Shader {
     fn into(self) -> RenderPipeline {
         let bind_groups = self.get_bind_group_layouts();
         let bind_groups: Vec<&BindGroupLayout> = bind_groups.iter().map(|b| b.as_ref()).collect();
@@ -870,42 +882,45 @@ impl Into<RenderPipeline> for Shader{
         let color_targets = self.get_color_targets();
         let vertex_entry_point = self.get_vertex_entry_point().unwrap();
         let fragment_entry_point = self.get_fragment_entry_point().unwrap();
-        let layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor{
-            label: Some("Pipeline Layout"),
-            bind_group_layouts: &bind_groups,
-            push_constant_ranges: &self.get_push_constant_ranges()
-        });
+        let layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Pipeline Layout"),
+                bind_group_layouts: &bind_groups,
+                push_constant_ranges: &self.get_push_constant_ranges(),
+            });
 
         let compiled_shader_module = self.compile(&self.device).unwrap();
 
-        self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor{
-            label: Some("Render Pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState{
-                module: &compiled_shader_module,
-                entry_point: Some(&vertex_entry_point),
-                compilation_options: Default::default(),
-                buffers: &vertex_buffers
-            },
-            fragment: Some(wgpu::FragmentState{
-                module: &compiled_shader_module,
-                entry_point: Some(&fragment_entry_point),
-                compilation_options: Default::default(),
-                targets: &color_targets
-            }),
-            multiview: None,
-            primitive: wgpu::PrimitiveState{
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: Default::default(),
-            cache: None,
-        })
+        self.device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Render Pipeline"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &compiled_shader_module,
+                    entry_point: Some(&vertex_entry_point),
+                    compilation_options: Default::default(),
+                    buffers: &vertex_buffers,
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &compiled_shader_module,
+                    entry_point: Some(&fragment_entry_point),
+                    compilation_options: Default::default(),
+                    targets: &color_targets,
+                }),
+                multiview: None,
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: Default::default(),
+                cache: None,
+            })
     }
 }
