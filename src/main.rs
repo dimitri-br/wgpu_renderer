@@ -14,6 +14,7 @@ use winit::event::*;
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{CursorGrabMode, Window};
+use crate::renderer::asset_manager::AssetManager;
 use crate::renderer::components::{MaterialComponent, MeshComponent, TransformComponent};
 use crate::renderer::systems::{handle_keyboard_input, handle_mouse_input, render_system, resize_system, update_system};
 
@@ -29,14 +30,23 @@ fn main() {
         .filter_level(log::LevelFilter::Info)
         .init();
 
-    let mut state = pollster::block_on(State::new(window.clone()));
+    let state = pollster::block_on(State::new(window.clone()));
 
     state.register_shader(
         "main",
         &*read_to_string("assets/shaders/shader.wgsl").unwrap(),
     );
 
-    let mut material = state.create_material("main");
+
+    let mut world = World::new();
+
+    world.add_unique(state);
+
+    let asset_manager = AssetManager::new();
+
+    world.add_unique(asset_manager);
+
+    /*let mut material = state.create_material("main");
     material.set_cull_mode(None);
     material.set_transparent(false);
     material.set_front_face(FrontFace::Cw);
@@ -70,9 +80,6 @@ fn main() {
         glam::Vec3::new(0.3, 0.3, 0.3),
     );
 
-    let mut world = World::new();
-
-    world.add_unique(state);
 
     let mesh_comp = MeshComponent{
         mesh: Arc::new(gpu_mesh),
@@ -85,7 +92,7 @@ fn main() {
     };
 
     // Spawn new entity with the components
-    let entity = world.add_entity((mesh_comp, material_comp, transform_comp));
+    let entity = world.add_entity((mesh_comp, material_comp, transform_comp));*/
 
     // Capture the mouse
     window.set_cursor_grab(CursorGrabMode::Locked).unwrap();

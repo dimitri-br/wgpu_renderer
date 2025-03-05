@@ -1,3 +1,4 @@
+use log::error;
 use shipyard::{IntoIter, UniqueView, UniqueViewMut, View, World};
 use wgpu::{Color, CommandEncoderDescriptor, LoadOp, Operations, RenderPass, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp};
 use winit::event::KeyEvent;
@@ -26,6 +27,7 @@ pub fn render_system(world: &World, state: UniqueView<State>){
     let frame = match state.surface.get_current_texture() {
         Ok(frame) => frame,
         Err(e) => {
+            error!("{:?}", e);
             return;
         }
     };

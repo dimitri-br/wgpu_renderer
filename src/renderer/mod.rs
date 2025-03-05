@@ -20,6 +20,7 @@ pub mod shader_reflect;
 pub mod types;
 pub mod components;
 pub mod systems;
+pub mod asset_manager;
 
 #[derive(Unique)]
 pub struct State {

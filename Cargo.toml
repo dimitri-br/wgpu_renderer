@@ -16,3 +16,4 @@ env_logger = "0.11.6"
 image = { version = "0.25.5", features = ["png", "jpeg"] }
 tobj = "4.0.2"
 shipyard = "0.7.7"
+uuid = { version = "1.15.1", features = ["v4", "v5"] }
