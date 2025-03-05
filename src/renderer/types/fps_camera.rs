@@ -109,11 +109,11 @@ impl FpsCamera {
     ///
     /// ```
     /// if let DeviceEvent::MouseMotion { delta: (dx, dy) } = event {
-    ///     camera.process_mouse(dx as f32, dy as f32);
+    ///     camera.process_mouse(-dx as f32, dy as f32);
     /// }
     /// ```
     pub fn process_mouse(&mut self, dx: f32, dy: f32) {
-        self.yaw_delta += dx * self.mouse_sensitivity;
+        self.yaw_delta -= dx * self.mouse_sensitivity;
         self.pitch_delta += -dy * self.mouse_sensitivity; // Usually invert Y
     }
 

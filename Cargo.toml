@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 wgpu = { git = "https://github.com/gfx-rs/wgpu.git", features = ["vulkan-portability"] }
 winit = { version = "0.29", features = ["rwh_05"] }
-glam = { version = "0.29.2", features = ["bytemuck"] }
+glam = { version = "0.30", features = ["bytemuck"] }
 gltf = "1.4.1"
 pollster = "0.4.0"
 bytemuck = { version = "1.21.0", features = ["derive"] }

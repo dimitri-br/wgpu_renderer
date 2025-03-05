@@ -36,7 +36,7 @@ fn main() {
     let mut material = state.create_material("main");
     material.set_cull_mode(Some(Face::Back));
     material.set_transparent(false);
-    material.set_front_face(FrontFace::Cw);
+    material.set_front_face(FrontFace::Ccw);
 
     let texture = state.load_texture("texture", std::path::Path::new("assets/capsule0.jpg"));
 

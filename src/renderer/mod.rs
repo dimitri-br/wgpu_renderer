@@ -71,9 +71,9 @@ impl State {
             .request_device(
                 &DeviceDescriptor {
                     label: None,
-                    required_features: Features::empty(),
+                    required_features: Features::default(),
                     required_limits: Limits::default(),
-                    memory_hints: Default::default(),
+                    memory_hints: wgpu::MemoryHints::Performance
                 },
                 None,
             )
