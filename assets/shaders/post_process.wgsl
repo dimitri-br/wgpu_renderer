@@ -48,7 +48,7 @@ var u_sampler: sampler;
 @fragment
 fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     var color = fxaa_main(uv);
-    //color = vec4<f32>(1.0 - color.rgb, color.a);
+    tonemap_aces(color.rgb);
     return color;
 }
 
@@ -97,4 +97,34 @@ fn fxaa_main(uv: vec2<f32>) -> vec4<f32> {
         return vec4<f32>(rgbA, 1.0);
     }
     return vec4<f32>(rgbB, 1.0);
+}
+
+// Different tone mapping operators.
+fn tonemap_linear(color: vec3<f32>) -> vec4<f32> {
+    return vec4<f32>(color, 1.0);
+}
+
+fn tonemap_reinhard(color: vec3<f32>) -> vec4<f32> {
+    return vec4<f32>(color / (color + vec3<f32>(1.0)), 1.0);
+}
+
+fn tonemap_uncharted2(color: vec3<f32>) -> vec4<f32> {
+    let A = 0.15;
+    let B = 0.50;
+    let C = 0.10;
+    let D = 0.20;
+    let E = 0.02;
+    let F = 0.30;
+    let mapped = ((color * (A * color + C * B) + D * E) / (color * (A * color + B) + D * F)) - E / F;
+    return vec4(mapped, 1.0);
+}
+
+fn tonemap_aces(color: vec3<f32>) -> vec4<f32> {
+    let A = 2.51;
+    let B = 0.03;
+    let C = 2.43;
+    let D = 0.59;
+    let E = 0.14;
+    let mapped = (color * (A * color + B)) / (color * (C * color + D) + E);
+    return vec4(mapped, 1.0);
 }

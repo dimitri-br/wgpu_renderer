@@ -1,6 +1,7 @@
 use std::ops::Deref;
 use glam::vec3;
 use log::{error, info};
+use rand::random;
 use shipyard::EntitiesViewMut;
 use shipyard::{IntoIter, UniqueView, UniqueViewMut, View, ViewMut};
 use wgpu::{Color, LoadOp, Operations, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, TextureFormat};
@@ -63,7 +64,7 @@ pub fn load_assets( mut state: UniqueViewMut<State>, mut asset_manager: UniqueVi
     gbuffer_material.set_texture("g_depth", depth_texture.view.clone());
     gbuffer_material.set_sampler("g_sampler", sampler.clone());
 
-    let post_processing_shader = asset_manager.get_or_create_shader("invert", "assets/shaders/invert.wgsl");
+    let post_processing_shader = asset_manager.get_or_create_shader("invert", "assets/shaders/post_process.wgsl");
     let post_processing_material = asset_manager.get_or_create_material("invert_mat", "invert");
     post_processing_material.set_cull_mode(None);
     post_processing_material.set_depth(false);
@@ -86,6 +87,7 @@ pub fn add_entities(mut entities: EntitiesViewMut, asset_manager: UniqueView<Ass
         let x = (n % 10) as f32;
         let z = (n / 10) as f32;
         transform.translate(vec3(x * 2.0 - 10.0, 0.0, z * 2.0 - 10.0));
+        transform.rotate(glam::Quat::from_euler(glam::EulerRot::YXZ, random::<f32>() * 360.0, random::<f32>() * 360.0, random::<f32>() * 360.0));
         transform.scale(vec3(0.5, 0.5, 0.5));
         let transform_component = TransformComponent{
             transform
@@ -96,13 +98,24 @@ pub fn add_entities(mut entities: EntitiesViewMut, asset_manager: UniqueView<Ass
 
 
 
-    entities.bulk_add_entity((&mut lights, &mut transforms), (0..10).map(|n| {
+    entities.bulk_add_entity((&mut lights, &mut transforms), (0..5).map(|n| {
         // Scatter a few lights around
         let mut light_transform = Transform::new();
-        light_transform.translate(vec3((n % 10) as f32, 2.0, (n / 10) as f32));
-        light_transform.scale(vec3(0.1, 0.1, 0.1));
-
-        let light = Light::new(light_transform.translation(), vec3(1.0, 1.0, 1.0), 1.0);
+        light_transform.translate(vec3(
+            random::<f32>() * 50.0 - 25.0, // Random between -25 and 25
+            random::<f32>() * 50.0 - 25.0,
+            random::<f32>() * 50.0 - 25.0,
+        ));
+        // Random color
+        let color = vec3(
+            // Random between 0.5 and 1.0
+            random::<f32>() * 0.5 + 0.5,
+            random::<f32>() * 0.5 + 0.5,
+            random::<f32>() * 0.5 + 0.5,
+        );
+        // Random intensity
+        let intensity = random::<f32>() * 10.0 + 10.0;
+        let light = Light::new(light_transform.translation(), color, intensity);
         let light_component = LightComponent{
             light
         };
@@ -150,8 +163,6 @@ pub fn update_system(mut state: UniqueViewMut<State>, mut global_component: Uniq
 }
 
 pub fn light_update_system(mut global_component: UniqueViewMut<GlobalComponent>, lights: View<LightComponent>) {
-    error!("Updating light buffer");
-
     let mut light_data = Vec::new();
     for light in lights.iter() {
         light_data.push(light.light);
@@ -187,7 +198,6 @@ pub fn render_system(mut graphics: RenderGraphicsViewMut, asset_manager: UniqueV
     let post_processing_material = asset_manager.get_material_by_name("invert_mat").unwrap();
     let post_processing_pipeline = post_processing_material.get_pipeline();
 
-    info!("Rendering frame");
     post_processing_material.set_texture("u_texture", output_texture.view.clone());
     {
         // No Depth render pass
@@ -199,9 +209,9 @@ pub fn render_system(mut graphics: RenderGraphicsViewMut, asset_manager: UniqueV
                     resolve_target: None,
                     ops: Operations {
                         load: LoadOp::Clear(Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
                             a: 1.0
                         }),
                         store: StoreOp::Store,
@@ -266,7 +276,7 @@ pub fn render_system(mut graphics: RenderGraphicsViewMut, asset_manager: UniqueV
             mesh_comp.mesh.draw(&mut render_pass);
         });
     }
-    info!("Depth pass");
+
     {
         // Depth-Enabled render pass
         let mut render_pass = graphics.encoder.begin_render_pass(&RenderPassDescriptor {
@@ -340,7 +350,7 @@ pub fn render_system(mut graphics: RenderGraphicsViewMut, asset_manager: UniqueV
             mesh_comp.mesh.draw(&mut render_pass);
         });
     }
-    info!("GBuffer pass");
+
     // GBuffer composite pass
     {
         let mut render_pass = graphics.encoder.begin_render_pass(&RenderPassDescriptor {
@@ -370,7 +380,7 @@ pub fn render_system(mut graphics: RenderGraphicsViewMut, asset_manager: UniqueV
         gbuffer_material.bind(&mut render_pass);
         render_pass.draw(0..3, 0..1);
     }
-    info!("Post Processing pass");
+
     // Post-Processing pass
     {
         let mut render_pass = graphics.encoder.begin_render_pass(&RenderPassDescriptor {

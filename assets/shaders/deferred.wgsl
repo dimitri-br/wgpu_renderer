@@ -83,49 +83,55 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 // Deferred Lighting Fragment Shader
 // -----------------------------------------------------------------------------
 
+
 struct FragInput {
+    @builtin(position) frag_coord: vec4<f32>,
     @location(0) uv: vec2<f32>,
 };
 
+
 @fragment
-fn fragment_main(input: FragInput) -> @location(0) vec4<f32> {
-    // Sample G-buffer textures.
-    let albedo = textureSample(g_albedo, g_sampler, input.uv);
-    let normal_encoded = textureSample(g_normal, g_sampler, input.uv).rgb;
-    let pos = textureSample(g_position, g_sampler, input.uv).rgb;
-    // Depth texture sampling is omitted for this example.
+fn lighting_main(input: FragInput) -> @location(0) vec4<f32> {
+    // Reconstruct the G-buffer data.
+    let albedo: vec3<f32> = textureSample(g_albedo, g_sampler, input.uv).rgb;
+    let normal_encoded: vec3<f32> = textureSample(g_normal, g_sampler, input.uv).rgb;
+    let normal: vec3<f32> = normalize(normal_encoded * 2.0 - vec3<f32>(1.0));
+    let world_pos: vec3<f32> = textureSample(g_position, g_sampler, input.uv).rgb;
+    // Sample the depth. Assuming a clear value near 1.0 means background.
+    let depth: f32 = textureSample(g_depth, g_sampler, input.uv);
 
-    // Decode the normal from [0, 1] to [-1, 1] and normalize.
-    let normal = normalize(normal_encoded * 2.0 - vec3<f32>(1.0));
-
-    // Initialize the accumulated light color.
-    var lit_color = vec3<f32>(0.0);
-
-    // Determine the number of lights using WGSL's arrayLength() function.
-    let num_lights: u32 = arrayLength(&lights);
-
-    // Loop over each light in the storage buffer.
-    // (This works if the storage buffer's array is unsized; otherwise, use a fixed count.)
-    for (var i: u32 = 0u; i < num_lights; i = i + 1u) {
-        let light = lights[i];
-
-        // Compute the direction from the pixel to the light.
-        // For a point light, subtract pixel position from light position.
-        let L = normalize(light.position - pos);
-
-        // Fall-off factor based on distance.
-        let dist = length(light.position - pos);
-        let attenuation = 1.0 / (1.0 + dist * dist);
-
-        // Compute the diffuse term using Lambert's cosine law.
-        let NdotL = max(dot(normal, L), 0.0);
-
-        // Accumulate light contribution.
-        lit_color += light.color * light.intensity * NdotL;
+    // If the depth is at the clear value (or very close), consider this pixel background.
+    if (depth >= 0.9999) {
+         return vec4<f32>(albedo, 1.0);
     }
 
-    // Multiply the computed light with the albedo (diffuse color).
-    let final_color = albedo.rgb * lit_color;
+    // Start with an ambient term.
+    var final_color: vec3<f32> = albedo * 0.05;
 
-    return vec4<f32>(final_color, albedo.a);
+    // Define a maximum effective distance to ignore very far lights.
+    let max_distance: f32 = 15.0;
+
+    // Iterate over all point lights.
+    for (var i: u32 = 0u; i < arrayLength(&lights); i = i + 1u) {
+        let light = lights[i];
+        let light_vec: vec3<f32> = light.position - world_pos;
+        let distance: f32 = length(light_vec);
+        // Skip lights beyond the maximum effective distance.
+        if (distance > max_distance) {
+            continue;
+        }
+        let L: vec3<f32> = normalize(light_vec);
+        let NdotL: f32 = max(dot(normal, L), 0.0);
+        // Skip if the surface is facing away.
+        if (NdotL <= 0.0) {
+            continue;
+        }
+        // Use inverse-square law for attenuation.
+        let attenuation: f32 = 1.0 / (distance * distance);
+        final_color += albedo * light.color * light.intensity * NdotL * attenuation;
+    }
+
+    return vec4<f32>(final_color, 1.0);
 }
+
+

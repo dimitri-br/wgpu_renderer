@@ -40,7 +40,7 @@ impl State {
     pub async fn new(window: Arc<Window>) -> Self {
         info!("Initializing state...");
         let instance = Instance::new(&InstanceDescriptor {
-            backends: Backends::METAL,
+            backends: Backends::PRIMARY,
             flags: InstanceFlags::default(),
             backend_options: Default::default(),
         });

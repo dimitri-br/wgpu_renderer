@@ -42,11 +42,11 @@ impl LightStorage {
     }
 
     pub fn resize(&mut self) {
-        self.delta = true;
         let new_len = self.lights.len();
         if new_len == self.curr_len {
             return;
         }
+        self.delta = true;
 
         let new_size = (size_of::<Light>() * new_len) as wgpu::BufferAddress;
         let new_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
