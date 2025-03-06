@@ -9,3 +9,5 @@ pub mod sampler;
 pub mod texture;
 pub mod transform;
 pub mod uniform;
+pub mod light;
+pub mod light_storage;

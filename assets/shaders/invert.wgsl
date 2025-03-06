@@ -1,0 +1,100 @@
+// A simple directional light structure.
+struct Light {
+    direction: vec3<f32>, // Light direction (pointing from the light source)
+    color: vec3<f32>,     // Light color/intensity
+};
+
+struct GlobalData {
+    view_proj: mat4x4<f32>,
+    screen_size: vec2<f32>,
+};
+
+@group(0) @binding(0)
+var<uniform> global_data: GlobalData;
+
+@group(0) @binding(1)
+var<storage, read> lights: array<Light>;
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+
+@vertex
+fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
+    // Hard-coded positions for a full-screen triangle in OpenGL clip space.
+    // For DirectX clip space we flip the y component.
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -3.0),
+        vec2<f32>( 3.0,  1.0),
+        vec2<f32>(-1.0,  1.0)
+    );
+    let pos = positions[vertex_index];
+    var output: VertexOutput;
+    // Flip the y coordinate to adjust for DirectX clip space.
+    output.position = vec4<f32>(pos.x, -pos.y, 0.0, 1.0);
+    // Compute UVs from the original positions.
+    output.uv = (pos + vec2<f32>(1.0, 1.0)) * 0.5;
+    return output;
+}
+
+@group(1) @binding(0)
+var u_texture: texture_2d<f32>;
+
+@group(1) @binding(1)
+var u_sampler: sampler;
+
+@fragment
+fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    var color = fxaa_main(uv);
+    //color = vec4<f32>(1.0 - color.rgb, color.a);
+    return color;
+}
+
+// -------------------
+// FXAA (Fast Approximate Anti-Aliasing) Effect
+// Uses neighboring samples and luminance comparisons to smooth edges.
+// Requires the inverse screen size uniform.
+// -------------------
+fn fxaa_main(uv: vec2<f32>) -> vec4<f32> {
+    let inverse_screen_size = 1.0 / global_data.screen_size;
+    let rgbNW = textureSample(u_texture, u_sampler, uv + vec2(-inverse_screen_size.x, -inverse_screen_size.y)).rgb;
+    let rgbNE = textureSample(u_texture, u_sampler, uv + vec2( inverse_screen_size.x, -inverse_screen_size.y)).rgb;
+    let rgbSW = textureSample(u_texture, u_sampler, uv + vec2(-inverse_screen_size.x,  inverse_screen_size.y)).rgb;
+    let rgbSE = textureSample(u_texture, u_sampler, uv + vec2( inverse_screen_size.x,  inverse_screen_size.y)).rgb;
+    let rgbM  = textureSample(u_texture, u_sampler, uv).rgb;
+
+    let lumaNW = dot(rgbNW, vec3<f32>(0.299, 0.587, 0.114));
+    let lumaNE = dot(rgbNE, vec3<f32>(0.299, 0.587, 0.114));
+    let lumaSW = dot(rgbSW, vec3<f32>(0.299, 0.587, 0.114));
+    let lumaSE = dot(rgbSE, vec3<f32>(0.299, 0.587, 0.114));
+    let lumaM  = dot(rgbM,  vec3<f32>(0.299, 0.587, 0.114));
+
+    let lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
+    let lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
+
+    var dir = vec2<f32>(
+        -((lumaNW + lumaNE) - (lumaSW + lumaSE)),
+         ((lumaNW + lumaSW) - (lumaNE + lumaSE))
+    );
+
+    let dirReduce = max((lumaNW + lumaNE + lumaSW + lumaSE) * (0.25 * 0.5), 0.001);
+    let rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
+    let dirNormalized = clamp(dir * rcpDirMin, vec2<f32>(-8.0, -8.0), vec2<f32>(8.0, 8.0)) * inverse_screen_size;
+
+    let rgbA = 0.5 * (
+        textureSample(u_texture, u_sampler, uv + dirNormalized * (1.0/3.0 - 0.5)).rgb +
+        textureSample(u_texture, u_sampler, uv + dirNormalized * (2.0/3.0 - 0.5)).rgb
+    );
+    let rgbB = rgbA * 0.5 + 0.25 * (
+        textureSample(u_texture, u_sampler, uv + dirNormalized * -0.5).rgb +
+        textureSample(u_texture, u_sampler, uv + dirNormalized * 0.5).rgb
+    );
+
+    let lumaB = dot(rgbB, vec3<f32>(0.299, 0.587, 0.114));
+    if (lumaB < lumaMin || lumaB > lumaMax) {
+        return vec4<f32>(rgbA, 1.0);
+    }
+    return vec4<f32>(rgbB, 1.0);
+}

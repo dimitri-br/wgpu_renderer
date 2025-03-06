@@ -209,4 +209,21 @@ impl Camera for FpsCamera {
     fn build_view_projection_matrix(&self) -> Mat4 {
         self.build_vp()
     }
+
+    fn resize(&mut self, width: f32, height: f32) {
+        // Set aspect ratio
+        self.set_aspect(width / height);
+    }
+
+    fn update(&mut self, dt: f32) {
+        self.update(dt);
+    }
+
+    fn process_keyboard(&mut self, event: KeyEvent) {
+        self.process_keyboard(event);
+    }
+
+    fn process_mouse(&mut self, delta_x: f32, delta_y: f32) {
+        self.process_mouse(delta_x, delta_y);
+    }
 }

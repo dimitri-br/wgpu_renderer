@@ -53,9 +53,10 @@ impl BindGroupCache {
         layout: &BindGroupLayout,
         entries: &[BindGroupEntry],
         key: BindGroupKey,
+        reuse: bool,
     ) -> Arc<BindGroup> {
         // 1) Check if a bind group already exists for this key
-        {
+        if reuse {
             let cache = self.cache.read().unwrap();
             if let Some(bg) = cache.get(&key) {
                 log::info!("Found cached BindGroup");

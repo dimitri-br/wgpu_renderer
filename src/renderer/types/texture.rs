@@ -54,6 +54,7 @@ impl Texture {
     }
 
     pub fn new_screen_texture(device: &wgpu::Device, queue: &wgpu::Queue, dimensions: (u32, u32), format: wgpu::TextureFormat) -> Self{
+        log::info!("Creating screen texture with dimensions: {:?}", dimensions);
         let size = wgpu::Extent3d {
             width: dimensions.0,
             height: dimensions.1,

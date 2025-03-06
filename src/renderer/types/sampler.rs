@@ -1,5 +1,6 @@
 use wgpu::Sampler;
 
+#[derive(Clone, PartialEq)]
 pub struct SamplerParameters {
     pub address_mode_u: wgpu::AddressMode,
     pub address_mode_v: wgpu::AddressMode,

@@ -115,6 +115,22 @@ impl Material {
         }
     }
 
+    pub fn get_transparent(&self) -> bool{
+        self.pipeline_params.read().unwrap().transparent
+    }
+
+    pub fn get_cull_mode(&self) -> Option<Face>{
+        self.pipeline_params.read().unwrap().cull_mode
+    }
+
+    pub fn get_front_face(&self) -> FrontFace{
+        self.pipeline_params.read().unwrap().front_face
+    }
+
+    pub fn get_depth(&self) -> bool{
+        self.pipeline_params.read().unwrap().use_depth
+    }
+
     pub fn get_shader(&self) -> Arc<Shader> {
         self.shader.clone()
     }
@@ -177,6 +193,13 @@ impl Material {
     // Resource Params
     // -----------------
     pub fn set_texture(&self, param_name: &str, view: Arc<TextureView>) {
+        // Compare the pointer address to see if the texture has changed
+        if let Some(MaterialResource::Texture(old_view)) = self.resource_params.read().unwrap().get(param_name) {
+            if Arc::ptr_eq(old_view, &view) {
+                return;
+            }
+        }
+
         self.resource_params.write().unwrap()
             .insert(param_name.to_string(), MaterialResource::Texture(view));
         self.bind_group_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -192,6 +215,13 @@ impl Material {
     }
 
     pub fn set_uniform(&self, param_name: &str, buffer: Arc<UniformBuffer>) {
+        // Compare the pointer address to see if the buffer has changed
+        if let Some(MaterialResource::UniformBuffer(old_buffer)) = self.resource_params.read().unwrap().get(param_name) {
+            if Arc::ptr_eq(old_buffer, &buffer) {
+                return;
+            }
+        }
+
         self.resource_params.write().unwrap()
         .insert(
             param_name.to_string(),
@@ -307,7 +337,7 @@ impl Material {
             // Ask the global cache for a bind group
             let bg = self
                 .bind_group_cache
-                .get_or_create(layout.as_ref(), &entries, key);
+                .get_or_create(layout.as_ref(), &entries, key, true);
             self.cached_bind_group.write().unwrap().replace(bg);
         }
     }

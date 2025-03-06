@@ -15,5 +15,5 @@ naga = { version = "24.0.0", features = ["wgsl-in"] }
 env_logger = "0.11.6"
 image = { version = "0.25.5", features = ["png", "jpeg"] }
 tobj = "4.0.2"
-shipyard = "0.7.7"
+shipyard = { git = "https://github.com/leudz/shipyard.git" }
 uuid = { version = "1.15.1", features = ["v4", "v5"] }

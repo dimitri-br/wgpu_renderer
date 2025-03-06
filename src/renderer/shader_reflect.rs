@@ -731,7 +731,7 @@ impl Shader {
                 let size = match size {
                     naga::ArraySize::Constant(size) => *size,
                     _ => {
-                        error!("Unsupported array size");
+                        //error!("Unsupported array size");
                         return None;
                     }
                 };

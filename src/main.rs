@@ -4,10 +4,11 @@ use crate::renderer::types::mesh::Mesh;
 use crate::renderer::types::sampler::SamplerParameters;
 use crate::renderer::types::transform::Transform;
 use crate::renderer::types::uniform::UniformBuffer;
-use renderer::systems::load_assets;
+use renderer::ecs::systems::load_assets;
 use renderer::State;
 use std::fs::read_to_string;
 use std::sync::Arc;
+use log::error;
 use shipyard::World;
 use wgpu::*;
 use winit::event::*;
@@ -15,8 +16,13 @@ use winit::event_loop::{ControlFlow, EventLoopBuilder};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{CursorGrabMode, Window};
 use crate::renderer::asset_manager::AssetManager;
-use crate::renderer::components::{MaterialComponent, MeshComponent, TransformComponent};
-use crate::renderer::systems::{add_entities, handle_keyboard_input, handle_mouse_input, render_system, resize_system, update_system};
+use renderer::ecs::components::{MaterialComponent, MeshComponent, TransformComponent};
+use renderer::ecs::systems::{add_entities, handle_keyboard_input, handle_mouse_input, render_system, resize_system, update_system};
+use renderer::ecs::global_component::GlobalComponent;
+use crate::renderer::ecs::camera_component::CameraComponent;
+use crate::renderer::ecs::systems::light_update_system;
+use crate::renderer::types::fps_camera::FpsCamera;
+use crate::renderer::types::global::Globals;
 
 mod renderer;
 
@@ -40,16 +46,38 @@ fn main() {
         state.pipeline_manager.clone(),
         state.bind_group_cache.clone(),
     );
+    let global_component = GlobalComponent::new(&state);
+
+    let camera_component: CameraComponent = FpsCamera::new(
+        glam::vec3(0.0, 0.0, -3.0),
+        0.0, 0.0,
+        45.0,
+        state.get_aspect_ratio(),
+        0.1, 100.0,
+        1.0,
+        0.01,
+    ).into();
 
     world.add_unique(state);
     world.add_unique(asset_manager);
+    world.add_unique(global_component);
+    world.add_unique(camera_component);
 
     world.run(load_assets);
     world.run(add_entities);
 
     // Capture the mouse
-    window.set_cursor_grab(CursorGrabMode::Confined).unwrap();
+    if cfg!(target_os = "windows") || cfg!(target_os = "linux") {
+        window.set_cursor_grab(CursorGrabMode::Confined).unwrap();
+    }else if cfg!(target_os = "macos") {
+        window.set_cursor_grab(CursorGrabMode::Locked).unwrap();
+    }else{
+        error!("Unable to capture mouse");
+    }
     window.set_cursor_visible(false);
+
+    world.run(update_system);
+    world.run(light_update_system);
 
     // Run the event loop
     event_loop
@@ -81,7 +109,7 @@ fn main() {
                         }
                     }
                     WindowEvent::RedrawRequested => {
-                        world.run_with_data(render_system, &world);
+                        world.run(render_system);
                     }
                     _ => {}
                 },
@@ -92,6 +120,7 @@ fn main() {
                 }
                 Event::AboutToWait => {
                     world.run(update_system);
+                    world.run(light_update_system);
                     window.request_redraw();
                 }
                 _ => {}

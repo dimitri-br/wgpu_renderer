@@ -2,6 +2,7 @@ use bytemuck::{Pod, Zeroable};
 use crate::renderer::types::camera::Camera;
 use crate::renderer::types::uniform::Uniform;
 use wgpu::{Buffer, Queue};
+use crate::renderer::ecs::components::LightComponent;
 
 /// Global data that is shared between all shaders (group=0).
 ///
@@ -9,10 +10,14 @@ use wgpu::{Buffer, Queue};
 /// You can add more fields (time, lighting, etc.) as needed.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Globals {
+pub(crate) struct Globals {
     /// The camera's combined view-projection matrix.
     /// Stored as a row-major 4x4 for WGSL usage.
     pub view_proj: glam::Mat4,
+    /// The screen size
+    pub screen_size: glam::Vec2,
+    /// Padding (16 bytes)
+    _padding: [u32; 2],
 }
 
 impl Globals {
@@ -20,14 +25,21 @@ impl Globals {
     pub fn new() -> Self {
         Self {
             view_proj: glam::Mat4::IDENTITY,
+            screen_size: glam::Vec2::new(0.0, 0.0),
+            _padding: [0; 2],
         }
     }
 
     /// Update global data here—particularly the camera transform in `view_proj`.
     /// We'll call this each frame (or whenever the camera changes).
-    pub fn update_from_camera(&mut self, camera: &dyn Camera) {
+    pub fn update_from_camera<T: Camera + ?Sized>(&mut self, camera: &T) {
         let vp = camera.build_view_projection_matrix();
         self.view_proj = vp;
+    }
+
+    /// Update the screen size
+    pub fn update_screen_size(&mut self, width: f32, height: f32) {
+        self.screen_size = glam::Vec2::new(width, height);
     }
 }
 
