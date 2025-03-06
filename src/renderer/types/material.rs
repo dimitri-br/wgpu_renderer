@@ -45,12 +45,12 @@ impl Default for PipelineParams {
 /// - The created bind groups (one per bind group index)
 pub struct Material {
     pipeline_manager: Arc<PipelineManager>,
-    device: wgpu::Device,
+    device: Arc<wgpu::Device>,
 
     shader: Arc<Shader>,
 
     // For pipeline creation:
-    pipeline_params: PipelineParams,
+    pipeline_params: RwLock<PipelineParams>,
     cached_pipeline: RwLock<Option<Arc<RenderPipeline>>>,
 
     // For resource binding:
@@ -68,14 +68,14 @@ impl Material {
     pub(crate) fn new(
         shader: Arc<Shader>,
         pipeline_manager: Arc<PipelineManager>,
-        device: wgpu::Device,
+        device: Arc<wgpu::Device>,
         bind_group_cache: Arc<BindGroupCache>,
     ) -> Self {
         Self {
             pipeline_manager,
             device,
             shader,
-            pipeline_params: PipelineParams::default(),
+            pipeline_params: RwLock::new(PipelineParams::default()),
             cached_pipeline: RwLock::new(None),
             resource_params: RwLock::new(HashMap::new()),
             bind_group_cache,
@@ -87,30 +87,30 @@ impl Material {
     // -----------------
     // Pipeline Params
     // -----------------
-    pub fn set_transparent(&mut self, enable: bool) {
-        if self.pipeline_params.transparent != enable {
-            self.pipeline_params.transparent = enable;
+    pub fn set_transparent(&self, enable: bool) {
+        if self.pipeline_params.read().unwrap().transparent!= enable {
+            self.pipeline_params.write().unwrap().transparent = enable;
             self.cached_pipeline.write().unwrap().take();
         }
     }
 
-    pub fn set_cull_mode(&mut self, mode: Option<Face>) {
-        if self.pipeline_params.cull_mode != mode {
-            self.pipeline_params.cull_mode = mode;
+    pub fn set_cull_mode(&self, mode: Option<Face>) {
+        if self.pipeline_params.read().unwrap().cull_mode != mode {
+            self.pipeline_params.write().unwrap().cull_mode = mode;
             self.cached_pipeline.write().unwrap().take();
         }
     }
 
-    pub fn set_front_face(&mut self, face: FrontFace) {
-        if self.pipeline_params.front_face != face {
-            self.pipeline_params.front_face = face;
+    pub fn set_front_face(&self, face: FrontFace) {
+        if self.pipeline_params.read().unwrap().front_face != face {
+            self.pipeline_params.write().unwrap().front_face = face;
             self.cached_pipeline.write().unwrap().take();
         }
     }
 
-    pub fn set_depth(&mut self, use_depth: bool){
-        if self.pipeline_params.use_depth != use_depth{
-            self.pipeline_params.use_depth = use_depth;
+    pub fn set_depth(&self, use_depth: bool){
+        if self.pipeline_params.read().unwrap().use_depth != use_depth{
+            self.pipeline_params.write().unwrap().use_depth = use_depth;
             self.cached_pipeline.write().unwrap().take();
         }
     }
@@ -129,8 +129,9 @@ impl Material {
         let pipeline = self.pipeline_manager.create_pipeline_with_config(
             (*self.shader).clone(),
             |desc, color_targets, primitive| {
+                let pipeline_params = self.pipeline_params.read().unwrap();
                 // If transparent, set alpha blending on each color target
-                if self.pipeline_params.transparent {
+                if pipeline_params.transparent {
                     for tgt_opt in color_targets.iter_mut() {
                         if let Some(cts) = tgt_opt {
                             cts.blend = Some(BlendState {
@@ -149,10 +150,10 @@ impl Material {
                     }
                 }
                 // Cull Mode
-                primitive.cull_mode = self.pipeline_params.cull_mode;
+                primitive.cull_mode = pipeline_params.cull_mode;
                 // Front Face
-                primitive.front_face = self.pipeline_params.front_face;
-                desc.depth_stencil = if self.pipeline_params.use_depth {
+                primitive.front_face = pipeline_params.front_face;
+                desc.depth_stencil = if pipeline_params.use_depth {
                     Some(
                         DepthStencilState{
                             format: wgpu::TextureFormat::Depth32Float,
@@ -175,13 +176,13 @@ impl Material {
     // -----------------
     // Resource Params
     // -----------------
-    pub fn set_texture(&mut self, param_name: &str, view: Arc<TextureView>) {
+    pub fn set_texture(&self, param_name: &str, view: Arc<TextureView>) {
         self.resource_params.write().unwrap()
             .insert(param_name.to_string(), MaterialResource::Texture(view));
         self.bind_group_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
-    pub fn set_sampler(&mut self, param_name: &str, sampler_parameters: SamplerParameters) {
+    pub fn set_sampler(&self, param_name: &str, sampler_parameters: SamplerParameters) {
         self.resource_params.write().unwrap()
         .insert(
             param_name.to_string(),
@@ -190,7 +191,7 @@ impl Material {
         self.bind_group_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
-    pub fn set_uniform(&mut self, param_name: &str, buffer: Arc<UniformBuffer>) {
+    pub fn set_uniform(&self, param_name: &str, buffer: Arc<UniformBuffer>) {
         self.resource_params.write().unwrap()
         .insert(
             param_name.to_string(),

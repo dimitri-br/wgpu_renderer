@@ -61,12 +61,12 @@ impl Hash for PipelineLayoutKey {
 // -----------------------------------------------------------------------------
 
 pub struct PipelineLayoutManager {
-    device: Device,
+    device: Arc<Device>,
     layouts: RwLock<HashMap<PipelineLayoutKey, Arc<PipelineLayout>>>,
 }
 
 impl PipelineLayoutManager {
-    pub fn new(device: Device) -> Self {
+    pub fn new(device: Arc<Device>) -> Self {
         Self {
             device,
             layouts: RwLock::new(HashMap::new()),
@@ -109,7 +109,7 @@ impl PipelineLayoutManager {
 // -----------------------------------------------------------------------------
 
 pub struct PipelineManager {
-    device: Device,
+    device: Arc<Device>,
     layout_manager: Arc<PipelineLayoutManager>,
 
     // Optional pipeline cache
@@ -117,7 +117,7 @@ pub struct PipelineManager {
 }
 
 impl PipelineManager {
-    pub fn new(device: Device) -> Self {
+    pub fn new(device: Arc<Device>) -> Self {
         let layout_manager = Arc::new(PipelineLayoutManager::new(device.clone()));
         Self {
             device,

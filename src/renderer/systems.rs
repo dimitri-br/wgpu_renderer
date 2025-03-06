@@ -9,14 +9,48 @@ use crate::renderer::State;
 use crate::renderer::types::material::Material;
 
 use super::asset_manager::AssetManager;
+use super::types::sampler::SamplerParameters;
+use super::types::transform::Transform;
 
 pub fn load_assets( mut state: UniqueViewMut<State>, mut asset_manager: UniqueViewMut<AssetManager>){
-    asset_manager.get_or_create_texture("cap_texture", std::path::Path::new("assets/capsule0.jpg"), &mut state);
-    asset_manager.get_or_create_mesh(std::path::Path::new("assets/capsule.obj"), &mut state);
+    let mesh = asset_manager.get_or_create_mesh("assets/capsule.obj");
+    // load a texture
+    let texture = asset_manager.get_or_create_texture("capsule_tex", "assets/capsule0.jpg");
+
+    // create a shader
+    let shader = asset_manager.get_or_create_shader("main", "assets/shaders/shader.wgsl");
+    // create a material referencing that shader
+    let material = asset_manager.get_or_create_material("capsule_mat", "main");
+    material.set_cull_mode(Some(wgpu::Face::Back));
+    material.set_depth(true);
+    material.set_transparent(false);
+    material.set_texture("color_texture", texture.view.clone());
+    material.set_sampler("color_sampler", SamplerParameters {
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::Repeat,
+        address_mode_w: wgpu::AddressMode::Repeat,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::FilterMode::Linear,
+        lod_min_clamp: 0.0,
+        lod_max_clamp: 1.0,
+        ..Default::default()
+    });
+
     
 }
-pub fn add_entities(entities: EntitiesViewMut, mut state: UniqueViewMut<State>, mut meshes: ViewMut<MeshComponent>, mut materials: ViewMut<MaterialComponent>, mut transforms: ViewMut<TransformComponent>){
+pub fn add_entities(mut entities: EntitiesViewMut, asset_manager: UniqueView<AssetManager>, mut meshes: ViewMut<MeshComponent>, mut materials: ViewMut<MaterialComponent>, mut transforms: ViewMut<TransformComponent>){
+    let mesh_component = MeshComponent{
+        mesh: asset_manager.get_mesh_by_name("assets/capsule.obj").unwrap()
+    };
+    let material_component = MaterialComponent{
+        material: asset_manager.get_material_by_name("capsule_mat").unwrap()
+    };
+    let transform_component = TransformComponent{
+        transform: Transform::new()
+    };
     
+    entities.add_entity((&mut meshes, &mut materials, &mut transforms), (mesh_component, material_component, transform_component));
 
 }
 
