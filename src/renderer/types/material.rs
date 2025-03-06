@@ -54,7 +54,7 @@ pub struct Material {
     cached_pipeline: RwLock<Option<Arc<RenderPipeline>>>,
 
     // For resource binding:
-    resource_params: HashMap<String, MaterialResource>,
+    resource_params: RwLock<HashMap<String, MaterialResource>>,
 
     // We’ll keep the global bind group cache in a field, or store it globally somewhere else.
     bind_group_cache: Arc<BindGroupCache>,
@@ -77,7 +77,7 @@ impl Material {
             shader,
             pipeline_params: PipelineParams::default(),
             cached_pipeline: RwLock::new(None),
-            resource_params: HashMap::new(),
+            resource_params: RwLock::new(HashMap::new()),
             bind_group_cache,
             cached_bind_group: RwLock::new(None),
             bind_group_dirty: AtomicBool::new(false),
@@ -176,13 +176,14 @@ impl Material {
     // Resource Params
     // -----------------
     pub fn set_texture(&mut self, param_name: &str, view: Arc<TextureView>) {
-        self.resource_params
+        self.resource_params.write().unwrap()
             .insert(param_name.to_string(), MaterialResource::Texture(view));
         self.bind_group_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn set_sampler(&mut self, param_name: &str, sampler_parameters: SamplerParameters) {
-        self.resource_params.insert(
+        self.resource_params.write().unwrap()
+        .insert(
             param_name.to_string(),
             MaterialResource::Sampler(Arc::new(sampler_parameters.create_sampler(&self.device))),
         );
@@ -190,7 +191,8 @@ impl Material {
     }
 
     pub fn set_uniform(&mut self, param_name: &str, buffer: Arc<UniformBuffer>) {
-        self.resource_params.insert(
+        self.resource_params.write().unwrap()
+        .insert(
             param_name.to_string(),
             MaterialResource::UniformBuffer(buffer),
         );
@@ -244,12 +246,14 @@ impl Material {
         let mut resource_ids = Vec::new();
         let mut missing_resource = false;
 
+        let resource_params = self.resource_params.read().unwrap();
+
         for b in shader_bindings
             .iter()
             .filter(|b| b.group == MATERIAL_GROUP_INDEX)
         {
             if let Some(name) = &b.name {
-                if let Some(resource) = self.resource_params.get(name) {
+                if let Some(resource) = resource_params.get(name) {
                     // We have a resource for this binding
                     let entry = BindGroupEntry {
                         binding: b.binding,

@@ -1,10 +1,24 @@
+use gltf::json::extensions::asset;
 use log::error;
-use shipyard::{IntoIter, UniqueView, UniqueViewMut, View, World};
+use shipyard::EntitiesViewMut;
+use shipyard::{IntoIter, UniqueView, UniqueViewMut, View, ViewMut, World};
 use wgpu::{Color, CommandEncoderDescriptor, LoadOp, Operations, RenderPass, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp};
 use winit::event::KeyEvent;
 use crate::renderer::components::*;
 use crate::renderer::State;
 use crate::renderer::types::material::Material;
+
+use super::asset_manager::AssetManager;
+
+pub fn load_assets( mut state: UniqueViewMut<State>, mut asset_manager: UniqueViewMut<AssetManager>){
+    asset_manager.get_or_create_texture("cap_texture", std::path::Path::new("assets/capsule0.jpg"), &mut state);
+    asset_manager.get_or_create_mesh(std::path::Path::new("assets/capsule.obj"), &mut state);
+    
+}
+pub fn add_entities(entities: EntitiesViewMut, mut state: UniqueViewMut<State>, mut meshes: ViewMut<MeshComponent>, mut materials: ViewMut<MaterialComponent>, mut transforms: ViewMut<TransformComponent>){
+    
+
+}
 
 pub fn handle_keyboard_input(key_event: KeyEvent, mut state: UniqueViewMut<State>) {
     state.handle_keyboard(key_event);

@@ -1,6 +1,7 @@
 // src/renderer/asset_manager.rs
 
 use std::collections::HashMap;
+use std::fs::read_to_string;
 use std::path::Path;
 use std::sync::Arc;
 use shipyard::Unique;
@@ -11,6 +12,8 @@ use crate::renderer::types::mesh::Mesh;
 use crate::renderer::types::material::Material;
 use crate::renderer::types::texture::Texture;
 use crate::renderer::State;
+
+use super::shader_reflect::Shader;
 
 /// Generates a UUID based on a given string using version 5 with the URL namespace.
 /// This ensures that the same input always produces the same UUID.
@@ -25,6 +28,7 @@ fn uuid_from_string<S: AsRef<str>>(s: S) -> Uuid {
 #[derive(Unique)]
 pub struct AssetManager {
     pub meshes: HashMap<Uuid, Arc<GpuMesh>>,
+    pub shaders: HashMap<Uuid, Arc<Shader>>,
     pub materials: HashMap<Uuid, Arc<Material>>,
     pub textures: HashMap<Uuid, Arc<Texture>>,
 }
@@ -33,6 +37,7 @@ impl AssetManager {
     pub fn new() -> Self {
         Self {
             meshes: HashMap::new(),
+            shaders: HashMap::new(),
             materials: HashMap::new(),
             textures: HashMap::new(),
         }
@@ -43,7 +48,7 @@ impl AssetManager {
     pub fn get_or_create_mesh<P: AsRef<Path>>(
         &mut self,
         path: P,
-        state: State,
+        state: &mut State,
     ) -> Arc<GpuMesh> {
         let path_str = path.as_ref().to_string_lossy();
         let key = uuid_from_string(&path_str);
@@ -79,16 +84,32 @@ impl AssetManager {
     pub fn get_or_create_material<S: AsRef<str>>(
         &mut self,
         id: S,
-        material_creator: impl FnOnce() -> Material,
+        shader: Arc<Shader>,
+        state: &State,
     ) -> Arc<Material> {
         let key = uuid_from_string(id.as_ref());
         if let Some(mat) = self.materials.get(&key) {
             return mat.clone();
         }
-        let material = material_creator();
+        let material = stat
         let material = Arc::new(material);
         self.materials.insert(key, material.clone());
         material
+    }
+
+    pub fn get_or_create_shader<S: AsRef<str>, P: AsRef<Path>>(
+        &mut self,
+        id: S,
+        path: P,
+        state: &State,
+    ) -> Arc<Shader>{
+        let key = uuid_from_string(id.as_ref());
+        if let Some(shader) = self.shaders.get(&key) {
+            return shader.clone();
+        }
+        let file = read_to_string(path).expect("Failed to load shader from path!");
+        state.register_shader(id.as_ref(), &file);
+        state.get_shader(id.as_ref()).expect("Failed to get shader")
     }
 
     /// Retrieve a cached mesh by its asset name (using the same UUID generation).

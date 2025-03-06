@@ -6,7 +6,6 @@ use crate::renderer::types::transform::Transform;
 use crate::renderer::types::uniform::UniformBuffer;
 use renderer::State;
 use std::fs::read_to_string;
-use std::os::macos::raw::stat;
 use std::sync::Arc;
 use shipyard::World;
 use wgpu::*;
@@ -32,13 +31,7 @@ fn main() {
 
     let state = pollster::block_on(State::new(window.clone()));
 
-    state.register_shader(
-        "main",
-        &*read_to_string("assets/shaders/shader.wgsl").unwrap(),
-    );
-
-
-    let mut world = World::new();
+    let world = World::new();
 
     world.add_unique(state);
 
