@@ -62,6 +62,10 @@ impl BindGroupCache {
                 log::info!("Found cached BindGroup");
                 return bg.clone();
             }
+        }else{
+            // Drop the old bind group
+            let mut cache = self.cache.write().unwrap();
+            cache.remove(&key);
         }
         log::info!("Creating new BindGroup");
 

@@ -35,7 +35,7 @@ var<uniform> global_data: GlobalData;
 
 // Dynamic array of lights (storage buffer).
 @group(0) @binding(1)
-var<storage, read> lights: array<Light>;
+var<uniform> lights: array<Light>;
 
 // G-buffer textures and sampler are stored in group 1.
 @group(1) @binding(0)
@@ -84,51 +84,57 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 // -----------------------------------------------------------------------------
 
 
-struct FragInput {
+struct FragmentInput {
     @builtin(position) frag_coord: vec4<f32>,
     @location(0) uv: vec2<f32>,
 };
 
-
 @fragment
-fn lighting_main(input: FragInput) -> @location(0) vec4<f32> {
-    // Reconstruct the G-buffer data.
+fn deferred_fs(input: FragmentInput) -> @location(0) vec4<f32> {
+    // Reconstruct the G-buffer data
     let albedo: vec3<f32> = textureSample(g_albedo, g_sampler, input.uv).rgb;
     let normal_encoded: vec3<f32> = textureSample(g_normal, g_sampler, input.uv).rgb;
     let normal: vec3<f32> = normalize(normal_encoded * 2.0 - vec3<f32>(1.0));
     let world_pos: vec3<f32> = textureSample(g_position, g_sampler, input.uv).rgb;
-    // Sample the depth. Assuming a clear value near 1.0 means background.
+
+    // Sample the depth buffer
     let depth: f32 = textureSample(g_depth, g_sampler, input.uv);
 
-    // If the depth is at the clear value (or very close), consider this pixel background.
-    if (depth >= 0.9999) {
-         return vec4<f32>(albedo, 1.0);
+    // If depth is at max (background pixel), discard
+    if (depth >= 0.9999 || all(world_pos == vec3<f32>(0.0))) {
+        return vec4<f32>(albedo, 1.0);
     }
 
-    // Start with an ambient term.
-    var final_color: vec3<f32> = albedo * 0.05;
+    // Ambient term (very low)
+    var final_color: vec3<f32> = albedo * 0.0;
 
-    // Define a maximum effective distance to ignore very far lights.
-    let max_distance: f32 = 15.0;
+    // Define attenuation constants
+    let attenuation_const: f32 = 1.0;
+    let attenuation_linear: f32 = 0.09;
+    let attenuation_quad: f32 = 0.032;
 
-    // Iterate over all point lights.
-    for (var i: u32 = 0u; i < arrayLength(&lights); i = i + 1u) {
+    // Iterate over all point lights
+    let array_length: u32 = arrayLength(&lights);
+    for (var i: u32 = 0u; i < array_length; i = i + 1u) {
         let light = lights[i];
         let light_vec: vec3<f32> = light.position - world_pos;
         let distance: f32 = length(light_vec);
-        // Skip lights beyond the maximum effective distance.
-        if (distance > max_distance) {
-            continue;
-        }
+
+        // Normalize the light vector
         let L: vec3<f32> = normalize(light_vec);
+
+        // Skip if the surface is facing away from the light
         let NdotL: f32 = max(dot(normal, L), 0.0);
-        // Skip if the surface is facing away.
         if (NdotL <= 0.0) {
             continue;
         }
-        // Use inverse-square law for attenuation.
-        let attenuation: f32 = 1.0 / (distance * distance);
-        final_color += albedo * light.color * light.intensity * NdotL * attenuation;
+
+        // Quadratic attenuation model
+        let attenuation: f32 = light.intensity /
+            (attenuation_const + attenuation_linear * distance + attenuation_quad * (distance * distance));
+
+        // Add light contribution
+        final_color += albedo * light.color * NdotL * attenuation;
     }
 
     return vec4<f32>(final_color, 1.0);

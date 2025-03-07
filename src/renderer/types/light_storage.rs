@@ -15,16 +15,18 @@ impl LightStorage {
     pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
         let storage_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Light Storage Buffer"),
-            size: (size_of::<Light>() * 10) as wgpu::BufferAddress,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            size: (size_of::<Light>() * 1000) as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
+
+        println!("Size: {:?}", (size_of::<Light>() * 1000) as wgpu::BufferAddress);
 
         Self {
             device,
             queue,
             lights: Vec::new(),
-            curr_len: 1,
+            curr_len: 1000,
             storage_buffer,
             delta: false
         }
@@ -43,7 +45,7 @@ impl LightStorage {
 
     pub fn resize(&mut self) {
         let new_len = self.lights.len();
-        if new_len == self.curr_len {
+        if new_len <= self.curr_len {
             return;
         }
         self.delta = true;
@@ -52,7 +54,7 @@ impl LightStorage {
         let new_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Light Storage Buffer"),
             size: new_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -72,7 +74,7 @@ impl LightStorage {
     }
 
     pub fn update(&mut self) {
-        if self.lights.is_empty() {
+        if self.lights.is_empty() || !self.delta {
             return;
         }
 

@@ -98,7 +98,7 @@ pub fn add_entities(mut entities: EntitiesViewMut, asset_manager: UniqueView<Ass
 
 
 
-    entities.bulk_add_entity((&mut lights, &mut transforms), (0..5).map(|n| {
+    entities.bulk_add_entity((&mut lights, &mut transforms), (0..1).map(|n| {
         // Scatter a few lights around
         let mut light_transform = Transform::new();
         light_transform.translate(vec3(
@@ -114,7 +114,7 @@ pub fn add_entities(mut entities: EntitiesViewMut, asset_manager: UniqueView<Ass
             random::<f32>() * 0.5 + 0.5,
         );
         // Random intensity
-        let intensity = random::<f32>() * 10.0 + 10.0;
+        let intensity = random::<f32>() * 100.0 + 100.0;
         let light = Light::new(light_transform.translation(), color, intensity);
         let light_component = LightComponent{
             light
@@ -201,7 +201,7 @@ pub fn render_system(mut graphics: RenderGraphicsViewMut, asset_manager: UniqueV
     post_processing_material.set_texture("u_texture", output_texture.view.clone());
     {
         // No Depth render pass
-        let mut render_pass = graphics.encoder.begin_render_pass(&RenderPassDescriptor {
+        let mut render_pass = graphics.encoder.as_mut().unwrap().begin_render_pass(&RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[
                 Some(RenderPassColorAttachment {
@@ -279,7 +279,7 @@ pub fn render_system(mut graphics: RenderGraphicsViewMut, asset_manager: UniqueV
 
     {
         // Depth-Enabled render pass
-        let mut render_pass = graphics.encoder.begin_render_pass(&RenderPassDescriptor {
+        let mut render_pass = graphics.encoder.as_mut().unwrap().begin_render_pass(&RenderPassDescriptor {
             label: Some("Depth Render Pass"),
             color_attachments: &[
                 Some(RenderPassColorAttachment {
@@ -341,7 +341,7 @@ pub fn render_system(mut graphics: RenderGraphicsViewMut, asset_manager: UniqueV
             // or dynamic offsets to bind the transform data in group 2.
             // For simplicity, assume we have a helper:
             render_pass.set_push_constants(
-                wgpu::ShaderStages::all(),
+                wgpu::ShaderStages::VERTEX_FRAGMENT,
                 0,
                 bytemuck::cast_slice(&[transform_comp.transform]),
             );
@@ -353,7 +353,7 @@ pub fn render_system(mut graphics: RenderGraphicsViewMut, asset_manager: UniqueV
 
     // GBuffer composite pass
     {
-        let mut render_pass = graphics.encoder.begin_render_pass(&RenderPassDescriptor {
+        let mut render_pass = graphics.encoder.as_mut().unwrap().begin_render_pass(&RenderPassDescriptor {
             label: Some("GBuffer Pass"),
             color_attachments: &[
                 Some(RenderPassColorAttachment {
@@ -383,7 +383,7 @@ pub fn render_system(mut graphics: RenderGraphicsViewMut, asset_manager: UniqueV
 
     // Post-Processing pass
     {
-        let mut render_pass = graphics.encoder.begin_render_pass(&RenderPassDescriptor {
+        let mut render_pass = graphics.encoder.as_mut().unwrap().begin_render_pass(&RenderPassDescriptor {
             label: Some("Post Processing Pass"),
             color_attachments: &[
                 Some(RenderPassColorAttachment {
@@ -410,4 +410,8 @@ pub fn render_system(mut graphics: RenderGraphicsViewMut, asset_manager: UniqueV
         post_processing_material.bind(&mut render_pass);
         render_pass.draw(0..3, 0..1);
     }
+
+    let encoder = graphics.encoder.take().unwrap();
+    graphics.state.queue.submit(std::iter::once(encoder.finish()));
+    graphics.output.take().unwrap().present();
 }

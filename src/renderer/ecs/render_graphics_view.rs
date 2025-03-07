@@ -6,10 +6,10 @@ use crate::renderer::ecs::global_component::GlobalComponent;
 use crate::renderer::State;
 
 pub struct RenderGraphicsViewMut<'v> {
-    pub encoder: wgpu::CommandEncoder,
+    pub encoder: Option<wgpu::CommandEncoder>,
     pub view: wgpu::TextureView,
     // New fields
-    output: Option<wgpu::SurfaceTexture>,
+    pub output: Option<wgpu::SurfaceTexture>,
     pub state: UniqueViewMut<'v, State>,
     pub global_component: UniqueView<'v, GlobalComponent>
 }
@@ -47,7 +47,7 @@ impl shipyard::Borrow for RenderGraphicsViewMut<'_> {
 
 
         Ok(RenderGraphicsViewMut {
-            encoder,
+            encoder: Some(encoder),
             view,
             output: Some(output),
             state,
@@ -58,19 +58,7 @@ impl shipyard::Borrow for RenderGraphicsViewMut<'_> {
 
 impl Drop for RenderGraphicsViewMut<'_> {
     fn drop(&mut self) {
-        // I chose to swap here to not have to use an `Option<wgpu::CommandEncoder>` in a publicly accessible field
-        let encoder = std::mem::replace(
-            &mut self.encoder,
-            self.state
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Render Encoder"),
-                }),
-        );
 
-        self.state.queue.submit(iter::once(encoder.finish()));
-        // output on the other hand is only used here so an `Option` is good enough
-        self.output.take().unwrap().present();
     }
 }
 

@@ -1,3 +1,4 @@
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use shipyard::Unique;
 use crate::renderer::bind_group_cache::{BindGroupCache, BindGroupKey};
@@ -44,11 +45,11 @@ impl GlobalComponent {
                     binding: 1,
                     visibility: wgpu::ShaderStages::all(),
                     ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        ty: wgpu::BufferBindingType::Uniform,//wgpu::BufferBindingType::Storage { read_only: true },
                         min_binding_size: None,
                         has_dynamic_offset: false,
                     },
-                    count: None,
+                    count: None
                 }
             ]
         }));

@@ -266,7 +266,7 @@ impl Shader {
                     .map_err(|_| "Invalid type handle")?;
 
                 // Initialize array count to 1 by default.
-                let mut array_count = NonZeroU32::new(1).ok_or("Invalid array count")?;
+                let mut array_count = None;
 
                 // Determine the binding type based on the address space and type information.
                 let binding_type = match global.space {
@@ -286,13 +286,6 @@ impl Shader {
                     _ => self.map_binding_type(module, ty, &mut array_count)?,
                 };
 
-                // Determine if the binding is an array by checking the array count.
-                let count = if array_count.get() > 1 {
-                    Some(array_count)
-                } else {
-                    None
-                };
-
                 let size = self.map_binding_to_size(module, ty);
 
                 // Create and store the binding information.
@@ -302,7 +295,7 @@ impl Shader {
                     group: binding.group,
                     ty: binding_type,
                     binding_size: size,
-                    count,
+                    count: array_count,
                 });
             }
         }
@@ -532,7 +525,7 @@ impl Shader {
                 let size = self.map_binding_to_size(module, ty);
                 if let Some(size) = size {
                     let push_constant_range = PushConstantRange {
-                        stages: ShaderStages::all(),
+                        stages: ShaderStages::VERTEX_FRAGMENT,
                         range: current_offset..current_offset + size,
                     };
                     push_constant_ranges.push(push_constant_range);
@@ -564,7 +557,7 @@ impl Shader {
         &self,
         module: &naga::Module,
         binding_type: &naga::Type,
-        array_count: &mut NonZeroU32,
+        array_count: &mut Option<NonZeroU32>,
     ) -> Result<BindingType, &'static str> {
         match &binding_type.inner {
             // Handle image bindings (textures).
@@ -651,10 +644,9 @@ impl Shader {
             // Handle array types by recursively mapping the base type and updating the array count.
             TypeInner::Array { base, size, .. } => {
                 if let naga::ArraySize::Constant(size) = size {
-                    *array_count = *size;
+                    *array_count = Some(*size);
                 } else {
-                    // Dynamic arrays are not supported in this implementation.
-                    return Err("Dynamic array size not supported");
+                    *array_count = None;
                 }
                 self.map_binding_type(module, &module.types[*base], array_count)
             }

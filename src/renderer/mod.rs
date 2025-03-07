@@ -40,8 +40,8 @@ impl State {
     pub async fn new(window: Arc<Window>) -> Self {
         info!("Initializing state...");
         let instance = Instance::new(&InstanceDescriptor {
-            backends: Backends::PRIMARY,
-            flags: InstanceFlags::default(),
+            backends: Backends::VULKAN,
+            flags: InstanceFlags::all(),
             backend_options: Default::default(),
         });
 
@@ -60,6 +60,8 @@ impl State {
             }
         };
 
+        println!("FDSAAS");
+
         let (device, queue) = match adapter.request_device(
             &DeviceDescriptor {
                 label: None,
@@ -68,7 +70,7 @@ impl State {
                     max_push_constant_size: 128,
                     ..Default::default()
                 },
-                memory_hints: wgpu::MemoryHints::Performance,
+                memory_hints: wgpu::MemoryHints::default(),
             },
             None
         ).await {
@@ -79,6 +81,8 @@ impl State {
             }
         };
 
+        println!("Here!@");
+
         let size = window.inner_size();
         let surface_format = TextureFormat::Bgra8UnormSrgb;
         let surface_config = SurfaceConfiguration {
@@ -86,7 +90,7 @@ impl State {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: PresentMode::Immediate,
+            present_mode: PresentMode::Fifo,
             desired_maximum_frame_latency: 3,
             alpha_mode: CompositeAlphaMode::Auto,
             view_formats: vec![],

@@ -4,12 +4,14 @@ use crate::renderer::types::uniform::Uniform;
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct Transform {
     pub matrix: glam::Mat4,
+    pub normal_matrix: glam::Mat4,
 }
 
 impl Transform {
     pub fn new() -> Self {
         Self {
             matrix: glam::Mat4::default(),
+            normal_matrix: glam::Mat4::default(),
         }
     }
 
@@ -63,7 +65,9 @@ impl Transform {
         self.matrix.to_scale_rotation_translation().0
     }
 
-    pub fn update_uniforms(&self, uniforms: &wgpu::Buffer, queue: &wgpu::Queue) {
+    pub fn update_uniforms(&mut self, uniforms: &wgpu::Buffer, queue: &wgpu::Queue) {
+        // Make sure to update the normal matrix
+        self.normal_matrix = self.matrix.inverse().transpose();
         queue.write_buffer(uniforms, 0, bytemuck::cast_slice(&[*self]));
     }
 }
