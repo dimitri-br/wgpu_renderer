@@ -161,16 +161,6 @@ pub fn update_system(mut state: UniqueViewMut<State>, mut global_component: Uniq
 pub fn light_update_system(mut global_component: UniqueViewMut<GlobalComponent>, mut lights: ViewMut<LightComponent>) {
     let mut light_data = Vec::new();
     (&mut lights).iter().for_each(|light| {
-        // Move the lights around (0,0,0)
-        let mut position = &mut light.light.position;
-        // Find the distance from the light to the origin
-        let distance = position.length();
-        // Move the light in a circle around the origin
-        let angle = distance * 0.1 + 0.1;
-        position.x = angle.cos() * distance;
-        position.z = angle.sin() * distance;
-
-
         light_data.push(light.light);
     });
     global_component.light_storage.set_lights(light_data);
@@ -181,7 +171,7 @@ pub fn light_update_system(mut global_component: UniqueViewMut<GlobalComponent>,
         global_component.light_storage.needs_rebuild = false;
     }
 
-    global_component.light_storage.update();
+    global_component.light_storage.update_buffer();
 
 
 }

@@ -1,92 +1,121 @@
 use std::sync::Arc;
-use log::info;
-use shipyard::Unique;
+use log::{error, info};
+use std::mem::size_of;
+use wgpu::{Buffer, BufferAddress, BufferBinding, BufferBindingType, BufferDescriptor, BufferUsages, Device, Queue};
 use crate::renderer::types::light::Light;
 
 pub(crate) struct LightStorage {
-    device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
+    device: Arc<Device>,
+    queue: Arc<Queue>,
+    /// The current list of lights that we intend to upload.
     pub lights: Vec<Light>,
-    curr_len: usize,
-    storage_buffer: wgpu::Buffer,
-    pub needs_rebuild: bool
+    /// The maximum number of lights the current GPU buffer can store.
+    buffer_capacity: usize,
+    storage_buffer: Buffer,
+    /// Flag indicating that the bind group must be rebuilt (because the buffer was reallocated).
+    pub needs_rebuild: bool,
 }
 
 impl LightStorage {
-    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
-        let storage_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Light Storage Buffer"),
-            size: (size_of::<Light>() * 1000) as wgpu::BufferAddress,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-
-        println!("Size: {:?}", (size_of::<Light>() * 1000) as wgpu::BufferAddress);
-
+    /// Creates a new LightStorage with an initial capacity.
+    pub fn new(device: Arc<Device>, queue: Arc<Queue>) -> Self {
+        const INITIAL_CAPACITY: usize = 1000;
+        let storage_buffer = Self::create_buffer(&device, INITIAL_CAPACITY);
         Self {
             device,
             queue,
-            lights: Vec::new(),
-            curr_len: 1000,
+            lights: Vec::with_capacity(INITIAL_CAPACITY),
+            buffer_capacity: INITIAL_CAPACITY,
             storage_buffer,
-            needs_rebuild: false
+            needs_rebuild: false,
         }
     }
 
+    /// Helper to create a new storage buffer for a given capacity.
+    fn create_buffer(device: &Device, capacity: usize) -> Buffer {
+        let buffer_size = (size_of::<Light>() * capacity) as BufferAddress;
+        device.create_buffer(&BufferDescriptor {
+            label: Some("Light Storage Buffer"),
+            size: buffer_size,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        })
+    }
+
+    /// Adds a new light and ensures the buffer can hold the new count.
+    /// Returns the index of the added light.
     pub fn add_light(&mut self, light: Light) -> usize {
         self.lights.push(light);
-        self.resize();
+        self.ensure_capacity();
         self.lights.len() - 1
     }
 
+    /// Removes a light at the given index and updates the buffer.
     pub fn remove_light(&mut self, index: usize) {
-        self.lights.remove(index);
-        self.resize();
-    }
-
-    pub fn resize(&mut self) {
-        let new_len = self.lights.len();
-        if new_len <= self.curr_len {
-            self.update();
-            return;
+        if index < self.lights.len() {
+            self.lights.remove(index);
+            // In this example we update the buffer after removal.
+            // Depending on your needs you might not shrink the GPU buffer.
+            self.update_buffer();
+        } else {
+            error!(
+                "Attempted to remove light at index {} but only {} exist",
+                index,
+                self.lights.len()
+            );
         }
-        info!("Resizing light storage buffer to {}", new_len);
-        self.needs_rebuild = true;
-
-        let new_size = (size_of::<Light>() * new_len) as wgpu::BufferAddress;
-        let new_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Light Storage Buffer"),
-            size: new_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        self.queue.write_buffer(&new_buffer, 0, bytemuck::cast_slice(&self.lights));
-        self.storage_buffer = new_buffer;
-        self.curr_len = new_len;
     }
 
+    /// Sets a light at the given index, updating the buffer.
     pub fn set_light(&mut self, index: usize, light: Light) {
-        self.lights[index] = light;
-        self.resize();
+        if index < self.lights.len() {
+            self.lights[index] = light;
+            self.update_buffer();
+        } else {
+            error!(
+                "Attempted to set light at index {} but only {} exist",
+                index,
+                self.lights.len()
+            );
+        }
     }
 
+    /// Replaces all lights and updates the buffer.
     pub fn set_lights(&mut self, lights: Vec<Light>) {
         self.lights = lights;
-        self.resize();
+        self.ensure_capacity();
     }
 
-    pub fn update(&mut self) {
-        if self.curr_len < self.lights.len() {
-            self.resize();
-            return;
+    /// Checks if the current buffer capacity is enough; if not, reallocates the buffer.
+    /// If capacity is sufficient, just updates the buffer data.
+    fn ensure_capacity(&mut self) {
+        let num_lights = self.lights.len();
+        if num_lights > self.buffer_capacity {
+            info!("Resizing light storage buffer to {}", num_lights);
+            self.reallocate_buffer(num_lights);
+        } else {
+            self.update_buffer();
         }
-        self.queue.write_buffer(&self.storage_buffer, 0, bytemuck::cast_slice(&self.lights));
+    }
+
+    /// Reallocates the storage buffer to hold at least `new_capacity` lights.
+    fn reallocate_buffer(&mut self, new_capacity: usize) {
+        self.needs_rebuild = true;
+        self.buffer_capacity = new_capacity;
+        self.storage_buffer = Self::create_buffer(&self.device, new_capacity);
+        self.update_buffer();
+    }
+
+    /// Uploads the current light data to the GPU.
+    pub fn update_buffer(&mut self) {
+        let data = bytemuck::cast_slice(&self.lights);
+        self.queue.write_buffer(&self.storage_buffer, 0, data);
         self.needs_rebuild = false;
     }
 
-    pub fn get_buffer_binding(&self) -> wgpu::BufferBinding {
-        wgpu::BufferBinding {
+    /// Returns a binding to the storage buffer, useful for binding it in a shader.
+    pub fn get_buffer_binding(&self) -> BufferBinding {
+        BufferBinding {
             buffer: &self.storage_buffer,
             offset: 0,
             size: None,
