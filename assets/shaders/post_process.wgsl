@@ -13,7 +13,7 @@ struct GlobalData {
 var<uniform> global_data: GlobalData;
 
 @group(0) @binding(1)
-var<uniform> lights: array<Light>;
+var<storage> lights: array<Light>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,

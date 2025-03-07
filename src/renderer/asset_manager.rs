@@ -180,7 +180,7 @@ impl AssetManager {
             return texture.clone();
         }
         info!("Creating screen texture '{}'.", name);
-        let texture = Texture::new_screen_texture(&self.device, &self.queue, size, format);
+        let texture = Texture::new_screen_texture(&self.device, &self.queue, size, format, false);
         let arc_tex = Arc::new(texture);
         self.textures.insert(key, arc_tex.clone());
         arc_tex
@@ -190,7 +190,7 @@ impl AssetManager {
         let key = uuid_from_string(name);
         if let Some(texture) = self.textures.get(&key) {
             info!("Replacing screen texture '{}'.", name);
-            let new_texture = Texture::new_screen_texture(&self.device, &self.queue, size, format);
+            let new_texture = Texture::new_screen_texture(&self.device, &self.queue, size, format, false);
             let arc_tex = Arc::new(new_texture);
             self.textures.insert(key, arc_tex.clone());
             arc_tex

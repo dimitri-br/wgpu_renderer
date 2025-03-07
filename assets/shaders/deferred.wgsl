@@ -1,62 +1,40 @@
-// ============================================================================
-// Deferred Lighting Shader
-// This shader takes four G-buffer textures:
-//  - Albedo (diffuse color)
-//  - Normal (encoded in [0, 1] range)
-//  - Position (world-space position)
-//  - Depth (depth value)
-// and computes a final shaded output using multiple point lights passed in
-// via a storage buffer.
-// ============================================================================
-
 // -----------------------------------------------------------------------------
 // Structures and Bindings
 // -----------------------------------------------------------------------------
 
-// A simple light structure. For a point light, 'position' is the light's
-// world-space position, 'intensity' scales its brightness, and 'color' is its color.
 struct Light {
     position: vec3<f32>,
     intensity: f32,
     color: vec3<f32>,
-    _padding: f32, // Padding for 16-byte alignment
+    _padding: f32, // for alignment
 };
 
-// Global data uniform. In addition to view-projection, you could include
-// a screen-size, time, etc.
 struct GlobalData {
     view_proj: mat4x4<f32>,
     screen_size: vec2<f32>,
 };
 
-// Global resources, stored in group 0.
 @group(0) @binding(0)
 var<uniform> global_data: GlobalData;
 
-// Dynamic array of lights (storage buffer).
 @group(0) @binding(1)
-var<uniform> lights: array<Light>;
+var<storage> lights: array<Light>;
 
-// G-buffer textures and sampler are stored in group 1.
+// G-buffer textures
 @group(1) @binding(0)
-var g_albedo: texture_2d<f32>;
-
+var g_albedo:   texture_2d<f32>;
 @group(1) @binding(1)
-var g_normal: texture_2d<f32>;
-
+var g_normal:   texture_2d<f32>;
 @group(1) @binding(2)
 var g_position: texture_2d<f32>;
-
 @group(1) @binding(3)
-var g_depth: texture_depth_2d;
-
+var g_depth:    texture_depth_2d;
 @group(1) @binding(4)
-var g_sampler: sampler;
+var g_sampler:  sampler;
 
 // -----------------------------------------------------------------------------
-// Full-Screen Vertex Shader (Triangle Vertex Trick)
+// Full-Screen Vertex (full-screen triangle)
 // -----------------------------------------------------------------------------
-
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -64,26 +42,25 @@ struct VertexOutput {
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
-    // Hard-coded full-screen triangle positions in clip space.
+    // The "triangle" that covers the full screen in clip space
     var positions = array<vec2<f32>, 3>(
         vec2<f32>(-1.0, -3.0),
         vec2<f32>( 3.0,  1.0),
         vec2<f32>(-1.0,  1.0)
     );
     let pos = positions[vertex_index];
-    var output: VertexOutput;
-    // For DirectX clip space, flip the y coordinate.
-    output.position = vec4<f32>(pos.x, -pos.y, 0.0, 1.0);
-    // Compute UVs from the original clip-space positions.
-    output.uv = (pos + vec2<f32>(1.0, 1.0)) * 0.5;
-    return output;
+
+    var out: VertexOutput;
+    // Depending on your coordinate system, you may flip Y for DirectX
+    out.position = vec4<f32>(pos.x, -pos.y, 0.0, 1.0);
+    // Convert clip‐space [-1..1] to UV [0..1]
+    out.uv = (pos + vec2<f32>(1.0, 1.0)) * 0.5;
+    return out;
 }
 
 // -----------------------------------------------------------------------------
-// Deferred Lighting Fragment Shader
+// Deferred Lighting Fragment
 // -----------------------------------------------------------------------------
-
-
 struct FragmentInput {
     @builtin(position) frag_coord: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -91,53 +68,47 @@ struct FragmentInput {
 
 @fragment
 fn deferred_fs(input: FragmentInput) -> @location(0) vec4<f32> {
-    // Reconstruct the G-buffer data
-    let albedo: vec3<f32> = textureSample(g_albedo, g_sampler, input.uv).rgb;
-    let normal_encoded: vec3<f32> = textureSample(g_normal, g_sampler, input.uv).rgb;
-    let normal: vec3<f32> = normalize(normal_encoded * 2.0 - vec3<f32>(1.0));
+    // Reconstruct from G-buffer
+    let albedo: vec3<f32> = textureSample(g_albedo,   g_sampler, input.uv).rgb;
+    let normal_enc: vec3<f32> = textureSample(g_normal, g_sampler, input.uv).rgb;
     let world_pos: vec3<f32> = textureSample(g_position, g_sampler, input.uv).rgb;
-
-    // Sample the depth buffer
     let depth: f32 = textureSample(g_depth, g_sampler, input.uv);
 
-    // If depth is at max (background pixel), discard
-    if (depth >= 0.9999 || all(world_pos == vec3<f32>(0.0))) {
+    // Decode normal from [0..1] => [-1..1]
+    let normal = normalize(normal_enc * 2.0 - vec3<f32>(1.0));
+
+    // If depth is near max or the position is zeroed out, treat as background
+    if (depth >= 0.9999) {
+        // Return the albedo or black, depending on your desired background
         return vec4<f32>(albedo, 1.0);
     }
 
-    // Ambient term (very low)
-    var final_color: vec3<f32> = albedo * 0.0;
+    // Start with a tiny ambient or black
+    var final_color = albedo * vec3<f32>(0.01);
 
-    // Define attenuation constants
-    let attenuation_const: f32 = 1.0;
-    let attenuation_linear: f32 = 0.09;
-    let attenuation_quad: f32 = 0.032;
+    // Attenuation factors
+    let attenuation_const = 1.0;
+    let attenuation_lin   = 0.09;
+    let attenuation_quad  = 0.032;
 
-    // Iterate over all point lights
-    let array_length: u32 = arrayLength(&lights);
-    for (var i: u32 = 0u; i < array_length; i = i + 1u) {
+    let num_lights: u32 = arrayLength(&lights);
+    for (var i: u32 = 0u; i < num_lights; i = i + 1u) {
         let light = lights[i];
-        let light_vec: vec3<f32> = light.position - world_pos;
-        let distance: f32 = length(light_vec);
 
-        // Normalize the light vector
-        let L: vec3<f32> = normalize(light_vec);
+        let to_light = light.position - world_pos;
+        let dist = length(to_light);
+        let L = normalize(to_light);
 
-        // Skip if the surface is facing away from the light
-        let NdotL: f32 = max(dot(normal, L), 0.0);
-        if (NdotL <= 0.0) {
-            continue;
+        let NdotL = max(dot(normal, L), 0.0);
+        if (NdotL > 0.0) {
+            // Quadratic attenuation
+            let attenuation = light.intensity /
+                (attenuation_const + attenuation_lin * dist + attenuation_quad * dist * dist);
+
+            // Lambertian diffuse
+            final_color += albedo * light.color * NdotL * attenuation;
         }
-
-        // Quadratic attenuation model
-        let attenuation: f32 = light.intensity /
-            (attenuation_const + attenuation_linear * distance + attenuation_quad * (distance * distance));
-
-        // Add light contribution
-        final_color += albedo * light.color * NdotL * attenuation;
     }
 
     return vec4<f32>(final_color, 1.0);
 }
-
-

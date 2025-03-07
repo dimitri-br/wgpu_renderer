@@ -27,7 +27,7 @@ struct Light {
 var<uniform> global_data: GlobalData;
 
 @group(0) @binding(1)
-var<uniform> lights: array<Light>;
+var<storage> lights: array<Light>;
 
 // Push constant (unchanged); still used
 struct Transform {

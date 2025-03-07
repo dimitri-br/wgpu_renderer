@@ -98,7 +98,7 @@ pub fn add_entities(mut entities: EntitiesViewMut, asset_manager: UniqueView<Ass
 
 
 
-    entities.bulk_add_entity((&mut lights, &mut transforms), (0..1).map(|n| {
+    entities.bulk_add_entity((&mut lights, &mut transforms), (0..15).map(|n| {
         // Scatter a few lights around
         let mut light_transform = Transform::new();
         light_transform.translate(vec3(
@@ -114,7 +114,7 @@ pub fn add_entities(mut entities: EntitiesViewMut, asset_manager: UniqueView<Ass
             random::<f32>() * 0.5 + 0.5,
         );
         // Random intensity
-        let intensity = random::<f32>() * 100.0 + 100.0;
+        let intensity = random::<f32>() * 10.0 + 10.0;
         let light = Light::new(light_transform.translation(), color, intensity);
         let light_component = LightComponent{
             light
@@ -146,13 +146,6 @@ pub fn resize_system((width, height): (u32, u32), mut state: UniqueViewMut<State
     asset_manager.replace_screen_texture("position_texture", (width, height), TextureFormat::Bgra8UnormSrgb);
     asset_manager.replace_screen_texture("normal_texture", (width, height), TextureFormat::Bgra8UnormSrgb);
     asset_manager.replace_screen_texture("depth_texture", (width, height), TextureFormat::Depth32Float);
-
-    // We need to re-reference the material to update the texture views
-    let gbuffer_material = asset_manager.get_material_by_name("gbuffer_mat").unwrap();
-    gbuffer_material.set_texture("g_albedo", asset_manager.get_texture_by_name("albedo_texture").unwrap().view.clone());
-    gbuffer_material.set_texture("g_position", asset_manager.get_texture_by_name("position_texture").unwrap().view.clone());
-    gbuffer_material.set_texture("g_normal", asset_manager.get_texture_by_name("normal_texture").unwrap().view.clone());
-    gbuffer_material.set_texture("g_depth", asset_manager.get_texture_by_name("depth_texture").unwrap().view.clone());
 }
 
 pub fn update_system(mut state: UniqueViewMut<State>, mut global_component: UniqueViewMut<GlobalComponent>, mut camera_component: UniqueViewMut<CameraComponent>) {
@@ -167,10 +160,13 @@ pub fn light_update_system(mut global_component: UniqueViewMut<GlobalComponent>,
     for light in lights.iter() {
         light_data.push(light.light);
     }
+    info!("Setting lights");
     global_component.light_storage.set_lights(light_data);
 
-    if global_component.light_storage.delta {
+    if global_component.light_storage.needs_rebuild {
+        info!("Rebuilding light storage buffer");
         global_component.reconstruct_bind_group();
+        global_component.light_storage.needs_rebuild = false;
     }
 
     global_component.light_storage.update();
@@ -194,89 +190,14 @@ pub fn render_system(mut graphics: RenderGraphicsViewMut, asset_manager: UniqueV
 
     let gbuffer_material = asset_manager.get_material_by_name("gbuffer_mat").unwrap();
     let gbuffer_pipeline = gbuffer_material.get_pipeline();
+    gbuffer_material.set_texture("g_albedo", albedo_texture.view.clone());
+    gbuffer_material.set_texture("g_position", position_texture.view.clone());
+    gbuffer_material.set_texture("g_normal", normal_texture.view.clone());
+    gbuffer_material.set_texture("g_depth", depth_texture.view.clone());
 
     let post_processing_material = asset_manager.get_material_by_name("invert_mat").unwrap();
     let post_processing_pipeline = post_processing_material.get_pipeline();
-
     post_processing_material.set_texture("u_texture", output_texture.view.clone());
-    {
-        // No Depth render pass
-        let mut render_pass = graphics.encoder.as_mut().unwrap().begin_render_pass(&RenderPassDescriptor {
-            label: Some("Render Pass"),
-            color_attachments: &[
-                Some(RenderPassColorAttachment {
-                    view: &albedo_view,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(Color {
-                            r: 0.0,
-                            g: 0.0,
-                            b: 0.0,
-                            a: 1.0
-                        }),
-                        store: StoreOp::Store,
-                    },
-                }),
-                Some(RenderPassColorAttachment {
-                    view: &position_view,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(Color {
-                            r: 0.0,
-                            g: 0.0,
-                            b: 0.0,
-                            a: 1.0
-                        }),
-                        store: StoreOp::Store,
-                    },
-                }),
-                Some(RenderPassColorAttachment {
-                    view: &normal_view,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(Color {
-                            r: 0.0,
-                            g: 0.0,
-                            b: 0.0,
-                            a: 1.0
-                        }),
-                        store: StoreOp::Store,
-                    },
-                }),
-            ],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-
-        // Bind global resources first (group 0)
-        render_pass.set_bind_group(0, &*graphics.global_component.global_bind_group, &[]);
-
-        // Get the pipeline from the material.
-        (&mesh_comps, &mat_comps, &transform_comps).iter().for_each(|(mesh_comp, mat_comp, transform_comp)| {
-            if mat_comp.material.get_depth() {
-                return;
-            }
-
-            let pipeline = mat_comp.material.get_pipeline();
-            render_pass.set_pipeline(&pipeline);
-
-            mat_comp.material.bind(&mut render_pass);
-            // Bind per-object data (e.g., the transform)
-            // Here, you could have a system that either uses a per-object uniform buffer
-            // or dynamic offsets to bind the transform data in group 2.
-            // For simplicity, assume we have a helper:
-            render_pass.set_push_constants(
-                wgpu::ShaderStages::all(),
-                0,
-                bytemuck::cast_slice(&[transform_comp.transform]),
-            );
-
-            // Draw the mesh.
-            mesh_comp.mesh.draw(&mut render_pass);
-        });
-    }
-
     {
         // Depth-Enabled render pass
         let mut render_pass = graphics.encoder.as_mut().unwrap().begin_render_pass(&RenderPassDescriptor {
@@ -286,15 +207,12 @@ pub fn render_system(mut graphics: RenderGraphicsViewMut, asset_manager: UniqueV
                     view: &albedo_view,
                     resolve_target: None,
                     ops: Operations {
-                        load: LoadOp::Load,
-                        store: StoreOp::Store,
-                    },
-                }),
-                Some(RenderPassColorAttachment {
-                    view: &position_view,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Load,
+                        load: LoadOp::Clear(Color {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 1.0
+                        }),
                         store: StoreOp::Store,
                     },
                 }),
@@ -302,7 +220,25 @@ pub fn render_system(mut graphics: RenderGraphicsViewMut, asset_manager: UniqueV
                     view: &normal_view,
                     resolve_target: None,
                     ops: Operations {
-                        load: LoadOp::Load,
+                        load: LoadOp::Clear(Color {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 1.0
+                        }),
+                        store: StoreOp::Store,
+                    },
+                }),
+                Some(RenderPassColorAttachment {
+                    view: &position_view,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 1.0
+                        }),
                         store: StoreOp::Store,
                     },
                 }),

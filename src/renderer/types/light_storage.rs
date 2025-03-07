@@ -8,7 +8,7 @@ pub(crate) struct LightStorage {
     pub lights: Vec<Light>,
     curr_len: usize,
     storage_buffer: wgpu::Buffer,
-    pub delta: bool
+    pub needs_rebuild: bool
 }
 
 impl LightStorage {
@@ -16,7 +16,7 @@ impl LightStorage {
         let storage_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Light Storage Buffer"),
             size: (size_of::<Light>() * 1000) as wgpu::BufferAddress,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
 
@@ -28,7 +28,7 @@ impl LightStorage {
             lights: Vec::new(),
             curr_len: 1000,
             storage_buffer,
-            delta: false
+            needs_rebuild: false
         }
     }
 
@@ -46,15 +46,16 @@ impl LightStorage {
     pub fn resize(&mut self) {
         let new_len = self.lights.len();
         if new_len <= self.curr_len {
+            self.update();
             return;
         }
-        self.delta = true;
+        self.needs_rebuild = true;
 
         let new_size = (size_of::<Light>() * new_len) as wgpu::BufferAddress;
         let new_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Light Storage Buffer"),
             size: new_size,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -74,12 +75,14 @@ impl LightStorage {
     }
 
     pub fn update(&mut self) {
-        if self.lights.is_empty() || !self.delta {
+        if self.curr_len < self.lights.len() {
+            self.resize();
             return;
         }
 
+        println!("Updating light storage buffer");
         self.queue.write_buffer(&self.storage_buffer, 0, bytemuck::cast_slice(&self.lights));
-        self.delta = false;
+        self.needs_rebuild = false;
     }
 
     pub fn get_buffer_binding(&self) -> wgpu::BufferBinding {

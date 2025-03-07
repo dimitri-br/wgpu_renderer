@@ -45,7 +45,7 @@ impl GlobalComponent {
                     binding: 1,
                     visibility: wgpu::ShaderStages::all(),
                     ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,//wgpu::BufferBindingType::Storage { read_only: true },
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
                         min_binding_size: None,
                         has_dynamic_offset: false,
                     },
