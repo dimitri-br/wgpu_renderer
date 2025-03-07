@@ -6,7 +6,7 @@ struct Light {
     position: vec3<f32>,
     intensity: f32,
     color: vec3<f32>,
-    _padding: f32, // for alignment
+    range: f32, // <-- NEW: Maximum effective distance of the light
 };
 
 struct GlobalData {
@@ -69,12 +69,12 @@ struct FragmentInput {
 @fragment
 fn deferred_fs(input: FragmentInput) -> @location(0) vec4<f32> {
     // Reconstruct from G-buffer
-    let albedo: vec3<f32> = textureSample(g_albedo,   g_sampler, input.uv).rgb;
-    let normal_enc: vec3<f32> = textureSample(g_normal, g_sampler, input.uv).rgb;
-    let world_pos: vec3<f32> = textureSample(g_position, g_sampler, input.uv).rgb;
-    let depth: f32 = textureSample(g_depth, g_sampler, input.uv);
+    let albedo: vec3<f32>      = textureSample(g_albedo,   g_sampler, input.uv).rgb;
+    let normal_enc: vec3<f32>  = textureSample(g_normal,   g_sampler, input.uv).rgb;
+    let world_pos: vec3<f32>   = textureSample(g_position, g_sampler, input.uv).rgb;
+    let depth: f32             = textureSample(g_depth,    g_sampler, input.uv);
 
-    // Decode normal from [0..1] => [-1..1]
+    // Decode normal from [0..1] => [-1..1], then normalize
     let normal = normalize(normal_enc * 2.0 - vec3<f32>(1.0));
 
     // If depth is near max or the position is zeroed out, treat as background
@@ -83,10 +83,10 @@ fn deferred_fs(input: FragmentInput) -> @location(0) vec4<f32> {
         return vec4<f32>(albedo, 1.0);
     }
 
-    // Start with a tiny ambient or black
+    // Start with a small ambient term
     var final_color = albedo * vec3<f32>(0.01);
 
-    // Attenuation factors
+    // Typical attenuation constants
     let attenuation_const = 1.0;
     let attenuation_lin   = 0.09;
     let attenuation_quad  = 0.032;
@@ -95,17 +95,23 @@ fn deferred_fs(input: FragmentInput) -> @location(0) vec4<f32> {
     for (var i: u32 = 0u; i < num_lights; i = i + 1u) {
         let light = lights[i];
 
+        // Vector from fragment to the light
         let to_light = light.position - world_pos;
-        let dist = length(to_light);
-        let L = normalize(to_light);
+        let dist     = length(to_light);
 
-        let NdotL = max(dot(normal, L), 0.0);
+        // Simple distance cutoff
+        if (dist > light.range) {
+            continue; // No contribution if outside the light's range
+        }
+
+        let L      = normalize(to_light);
+        let NdotL  = max(dot(normal, L), 0.0);
         if (NdotL > 0.0) {
-            // Quadratic attenuation
+            // Quadratic attenuation model
             let attenuation = light.intensity /
                 (attenuation_const + attenuation_lin * dist + attenuation_quad * dist * dist);
 
-            // Lambertian diffuse
+            // Lambertian diffuse contribution
             final_color += albedo * light.color * NdotL * attenuation;
         }
     }

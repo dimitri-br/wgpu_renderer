@@ -6,16 +6,16 @@ pub struct Light{
     pub position: glam::Vec3,
     pub intensity: f32,
     pub color: glam::Vec3,
-    _padding: f32,
+    pub range: f32,
 }
 
 impl Light{
-    pub fn new(position: glam::Vec3, color: glam::Vec3, intensity: f32) -> Self{
+    pub fn new(position: glam::Vec3, color: glam::Vec3, intensity: f32, range: f32) -> Self{
         Self{
             position,
             color,
             intensity,
-            _padding: 0.0,
+            range,
         }
     }
 }

@@ -16,8 +16,10 @@ pub(crate) struct Globals {
     pub view_proj: glam::Mat4,
     /// The screen size
     pub screen_size: glam::Vec2,
-    /// Padding (16 bytes)
-    _padding: [u32; 2],
+    /// Time
+    pub time: f32,
+    /// Padding
+    _padding: f32,
 }
 
 impl Globals {
@@ -26,7 +28,8 @@ impl Globals {
         Self {
             view_proj: glam::Mat4::IDENTITY,
             screen_size: glam::Vec2::new(0.0, 0.0),
-            _padding: [0; 2],
+            time: 0.0,
+            _padding: 0.0,
         }
     }
 
@@ -40,6 +43,10 @@ impl Globals {
     /// Update the screen size
     pub fn update_screen_size(&mut self, width: f32, height: f32) {
         self.screen_size = glam::Vec2::new(width, height);
+    }
+
+    pub fn update(&mut self, time: f32) {
+        self.time = time;
     }
 }
 

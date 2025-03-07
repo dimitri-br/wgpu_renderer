@@ -20,7 +20,7 @@ struct Light {
     position: vec3<f32>,
     intensity: f32,
     color: vec3<f32>,
-    _padding: f32,
+    range: f32,
 };
 
 @group(0) @binding(0)

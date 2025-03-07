@@ -186,11 +186,11 @@ impl AssetManager {
         arc_tex
     }
     
-    pub fn replace_screen_texture(&mut self, name: &str, size: (u32, u32), format: wgpu::TextureFormat) -> Arc<Texture> {
+    pub fn replace_screen_texture(&mut self, name: &str, size: (u32, u32), format: wgpu::TextureFormat, is_cube: bool) -> Arc<Texture> {
         let key = uuid_from_string(name);
         if let Some(texture) = self.textures.get(&key) {
             info!("Replacing screen texture '{}'.", name);
-            let new_texture = Texture::new_screen_texture(&self.device, &self.queue, size, format, false);
+            let new_texture = Texture::new_screen_texture(&self.device, &self.queue, size, format, is_cube);
             let arc_tex = Arc::new(new_texture);
             self.textures.insert(key, arc_tex.clone());
             arc_tex

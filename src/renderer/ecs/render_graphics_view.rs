@@ -1,4 +1,5 @@
 use std::iter;
+use std::sync::Arc;
 use log::warn;
 use shipyard::{AllStorages, SharedBorrow, TrackingTimestamp, UniqueView, UniqueViewMut};
 use wgpu::SurfaceError;
@@ -7,7 +8,7 @@ use crate::renderer::State;
 
 pub struct RenderGraphicsViewMut<'v> {
     pub encoder: Option<wgpu::CommandEncoder>,
-    pub view: wgpu::TextureView,
+    pub view: Arc<wgpu::TextureView>,
     // New fields
     pub output: Option<wgpu::SurfaceTexture>,
     pub state: UniqueViewMut<'v, State>,
@@ -48,7 +49,7 @@ impl shipyard::Borrow for RenderGraphicsViewMut<'_> {
 
         Ok(RenderGraphicsViewMut {
             encoder: Some(encoder),
-            view,
+            view: Arc::new(view),
             output: Some(output),
             state,
             global_component
@@ -58,7 +59,10 @@ impl shipyard::Borrow for RenderGraphicsViewMut<'_> {
 
 impl Drop for RenderGraphicsViewMut<'_> {
     fn drop(&mut self) {
+        self.state.queue.submit(iter::once(self.encoder.take().unwrap().finish()));
 
+        // Present
+        self.output.take().unwrap().present();
     }
 }
 

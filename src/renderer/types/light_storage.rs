@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use log::info;
 use shipyard::Unique;
 use crate::renderer::types::light::Light;
 
@@ -49,6 +50,7 @@ impl LightStorage {
             self.update();
             return;
         }
+        info!("Resizing light storage buffer to {}", new_len);
         self.needs_rebuild = true;
 
         let new_size = (size_of::<Light>() * new_len) as wgpu::BufferAddress;
@@ -79,8 +81,6 @@ impl LightStorage {
             self.resize();
             return;
         }
-
-        println!("Updating light storage buffer");
         self.queue.write_buffer(&self.storage_buffer, 0, bytemuck::cast_slice(&self.lights));
         self.needs_rebuild = false;
     }

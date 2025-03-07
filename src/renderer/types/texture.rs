@@ -58,14 +58,14 @@ impl Texture {
         let size = wgpu::Extent3d {
             width: dimensions.0,
             height: dimensions.1,
-            depth_or_array_layers: 1,
+            depth_or_array_layers: if is_cube { 6 } else { 1 },
         };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Texture"),
             size,
             mip_level_count: 1,
             sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
+            dimension: if is_cube { wgpu::TextureDimension::D3 } else { wgpu::TextureDimension::D2 },
             format,
             usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],

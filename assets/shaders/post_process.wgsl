@@ -1,8 +1,11 @@
 // A simple directional light structure.
 struct Light {
-    direction: vec3<f32>, // Light direction (pointing from the light source)
-    color: vec3<f32>,     // Light color/intensity
+    position: vec3<f32>,
+    intensity: f32,
+    color: vec3<f32>,
+    range: f32,
 };
+
 
 struct GlobalData {
     view_proj: mat4x4<f32>,
