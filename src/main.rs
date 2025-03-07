@@ -19,6 +19,7 @@ use crate::renderer::asset_manager::AssetManager;
 use renderer::ecs::components::{MaterialComponent, MeshComponent, TransformComponent};
 use renderer::ecs::systems::{add_entities, handle_keyboard_input, handle_mouse_input, render_system, resize_system, update_system};
 use renderer::ecs::global_component::GlobalComponent;
+use crate::renderer::auto_mipmapper::AutoMipmapper;
 use crate::renderer::ecs::camera_component::CameraComponent;
 use crate::renderer::ecs::systems::light_update_system;
 use crate::renderer::types::fps_camera::FpsCamera;
@@ -46,6 +47,7 @@ fn main() {
         state.pipeline_manager.clone(),
         state.bind_group_cache.clone(),
     );
+    let auto_mipmapper = AutoMipmapper::new(state.device.clone(), wgpu::TextureFormat::Rgba8UnormSrgb);
     let global_component = GlobalComponent::new(&state);
 
     let camera_component: CameraComponent = FpsCamera::new(
@@ -60,6 +62,7 @@ fn main() {
 
     world.add_unique(state);
     world.add_unique(asset_manager);
+    world.add_unique(auto_mipmapper);
     world.add_unique(global_component);
     world.add_unique(camera_component);
 

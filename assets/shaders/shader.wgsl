@@ -8,12 +8,13 @@ struct VertexOutput {
     @builtin(position) out_position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
     @location(1) normal: vec3<f32>,
-    @location(2) world_pos: vec3<f32>,
 };
 
 struct GlobalData {
     view_proj: mat4x4<f32>,
+    inv_view_proj: mat4x4<f32>,  // <-- Inverse of the view-projection matrix
     screen_size: vec2<f32>,
+    time: f32,
 };
 
 struct Light {
@@ -55,9 +56,6 @@ fn gb_vs_main(input: VertexInput) -> VertexOutput {
     // (This assumes uniform scaling; otherwise you'd need an inverse-transpose.)
     output.normal = normalize((uniforms.inverse_transpose_model * vec4<f32>(input.normals, 0.0)).xyz);
 
-    // Store the world-space position for the G-buffer
-    output.world_pos = world_pos;
-
     return output;
 }
 
@@ -65,13 +63,11 @@ fn gb_vs_main(input: VertexInput) -> VertexOutput {
 struct FragmentInput {
     @location(0) tex_coords: vec2<f32>,
     @location(1) normal: vec3<f32>,
-    @location(2) world_pos: vec3<f32>,
 };
 
 struct FragmentOutput {
     @location(0) color: vec4<f32>,
     @location(1) normal: vec4<f32>,
-    @location(2) position: vec4<f32>,
 };
 
 @group(1) @binding(0)
@@ -89,9 +85,6 @@ fn gb_fs_main(input: FragmentInput) -> FragmentOutput {
     // Encode the normal from [-1,1] into [0,1]
     // We assume 'input.normal' is already normalized in the vertex shader.
     output.normal = vec4<f32>(input.normal * 0.5 + vec3<f32>(0.5), 1.0);
-
-    // Write out the world-space position
-    output.position = vec4<f32>(input.world_pos, 1.0);
 
     return output;
 }

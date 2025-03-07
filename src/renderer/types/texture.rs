@@ -5,12 +5,19 @@ use std::sync::Arc;
 pub struct Texture {
     pub texture: Arc<wgpu::Texture>,
     pub view: Arc<wgpu::TextureView>,
+    pub mip_level_count: u32,
 }
 
 impl Texture {
+    pub fn create_view(&self, descriptor: &wgpu::TextureViewDescriptor) -> wgpu::TextureView {
+        self.texture.create_view(descriptor)
+    }
+
     pub fn load_from_bytes(device: &wgpu::Device, queue: &wgpu::Queue, bytes: &[u8], format: wgpu::TextureFormat) -> Self {
         let img = image::load_from_memory(bytes).unwrap().to_rgba8();
         let dimensions = img.dimensions();
+        let mip_level_count = 1 + (dimensions.0.max(dimensions.1) as f32).log2().floor() as u32;
+
         let size = wgpu::Extent3d {
             width: dimensions.0,
             height: dimensions.1,
@@ -19,11 +26,11 @@ impl Texture {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Texture"),
             size,
-            mip_level_count: 1,
+            mip_level_count,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format,
-            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
         queue.write_texture(
@@ -42,9 +49,12 @@ impl Texture {
             size,
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // Calculate the number of mip levels
+
         Self {
             texture: Arc::new(texture),
             view: Arc::new(view),
+            mip_level_count
         }
     }
 
@@ -74,6 +84,7 @@ impl Texture {
         Self {
             texture: Arc::new(texture),
             view: Arc::new(view),
+            mip_level_count: 1
         }
     }
 }

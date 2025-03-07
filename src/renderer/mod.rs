@@ -4,6 +4,7 @@ pub mod bind_group_cache;
 pub mod pipeline_manager;
 pub mod shader_reflect;
 pub mod ecs;
+pub mod auto_mipmapper;
 
 use std::sync::Arc;
 use log::{error, info};

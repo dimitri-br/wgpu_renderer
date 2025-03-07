@@ -9,7 +9,9 @@ struct Light {
 
 struct GlobalData {
     view_proj: mat4x4<f32>,
+    inv_view_proj: mat4x4<f32>,  // <-- Inverse of the view-projection matrix
     screen_size: vec2<f32>,
+    time: f32,
 };
 
 @group(0) @binding(0)

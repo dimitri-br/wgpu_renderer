@@ -2,16 +2,19 @@
 // Structures and Bindings
 // -----------------------------------------------------------------------------
 
+// Note: We added 'inv_view_proj' so we can reconstruct the world position.
+struct GlobalData {
+    view_proj: mat4x4<f32>,
+    inv_view_proj: mat4x4<f32>,  // <-- Inverse of the view-projection matrix
+    screen_size: vec2<f32>,
+    time: f32,
+};
+
 struct Light {
     position: vec3<f32>,
     intensity: f32,
     color: vec3<f32>,
-    range: f32, // <-- NEW: Maximum effective distance of the light
-};
-
-struct GlobalData {
-    view_proj: mat4x4<f32>,
-    screen_size: vec2<f32>,
+    range: f32, // Maximum effective distance of the light
 };
 
 @group(0) @binding(0)
@@ -20,16 +23,14 @@ var<uniform> global_data: GlobalData;
 @group(0) @binding(1)
 var<storage> lights: array<Light>;
 
-// G-buffer textures
+// G-buffer textures (we no longer need a position texture)
 @group(1) @binding(0)
 var g_albedo:   texture_2d<f32>;
 @group(1) @binding(1)
 var g_normal:   texture_2d<f32>;
 @group(1) @binding(2)
-var g_position: texture_2d<f32>;
-@group(1) @binding(3)
 var g_depth:    texture_depth_2d;
-@group(1) @binding(4)
+@group(1) @binding(3)
 var g_sampler:  sampler;
 
 // -----------------------------------------------------------------------------
@@ -49,9 +50,8 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
         vec2<f32>(-1.0,  1.0)
     );
     let pos = positions[vertex_index];
-
     var out: VertexOutput;
-    // Depending on your coordinate system, you may flip Y for DirectX
+    // Depending on your coordinate system, you may flip Y for DirectX.
     out.position = vec4<f32>(pos.x, -pos.y, 0.0, 1.0);
     // Convert clip‐space [-1..1] to UV [0..1]
     out.uv = (pos + vec2<f32>(1.0, 1.0)) * 0.5;
@@ -68,25 +68,33 @@ struct FragmentInput {
 
 @fragment
 fn deferred_fs(input: FragmentInput) -> @location(0) vec4<f32> {
-    // Reconstruct from G-buffer
-    let albedo: vec3<f32>      = textureSample(g_albedo,   g_sampler, input.uv).rgb;
-    let normal_enc: vec3<f32>  = textureSample(g_normal,   g_sampler, input.uv).rgb;
-    let world_pos: vec3<f32>   = textureSample(g_position, g_sampler, input.uv).rgb;
-    let depth: f32             = textureSample(g_depth,    g_sampler, input.uv);
+    // Sample the albedo and encoded normal from the G-buffer.
+    let albedo: vec3<f32>     = textureSample(g_albedo, g_sampler, input.uv).rgb;
+    let normal_enc: vec3<f32> = textureSample(g_normal, g_sampler, input.uv).rgb;
+    // Sample depth (assumed to be in [0, 1])
+    let depth: f32          = textureSample(g_depth, g_sampler, input.uv);
 
-    // Decode normal from [0..1] => [-1..1], then normalize
+    // Decode normal from [0..1] -> [-1..1] and normalize it.
     let normal = normalize(normal_enc * 2.0 - vec3<f32>(1.0));
 
-    // If depth is near max or the position is zeroed out, treat as background
+    let ndc_x = (input.frag_coord.x / global_data.screen_size.x) * 2.0 - 1.0;
+    let ndc_y = 1.0 - (input.frag_coord.y / global_data.screen_size.y) * 2.0;
+    let ndc = vec4<f32>(ndc_x, ndc_y, depth, 1.0);
+
+
+    // Transform from NDC back to world space.
+    var world_pos = global_data.inv_view_proj * ndc;
+    world_pos = world_pos / world_pos.w;
+
+    // If depth is near maximum (background), return just the albedo.
     if (depth >= 0.9999) {
-        // Return the albedo or black, depending on your desired background
         return vec4<f32>(albedo, 1.0);
     }
 
-    // Start with a small ambient term
+    // Start with a small ambient term.
     var final_color = albedo * vec3<f32>(0.01);
 
-    // Typical attenuation constants
+    // Attenuation constants.
     let attenuation_const = 1.0;
     let attenuation_lin   = 0.09;
     let attenuation_quad  = 0.032;
@@ -94,24 +102,22 @@ fn deferred_fs(input: FragmentInput) -> @location(0) vec4<f32> {
     let num_lights: u32 = arrayLength(&lights);
     for (var i: u32 = 0u; i < num_lights; i = i + 1u) {
         let light = lights[i];
-
-        // Vector from fragment to the light
-        let to_light = light.position - world_pos;
+        // Compute vector from the reconstructed world position to the light.
+        let to_light = light.position - world_pos.xyz;
         let dist     = length(to_light);
 
-        // Simple distance cutoff
+        // Skip this light if the fragment is outside the light's effective range.
         if (dist > light.range) {
-            continue; // No contribution if outside the light's range
+            continue;
         }
 
-        let L      = normalize(to_light);
-        let NdotL  = max(dot(normal, L), 0.0);
+        let L     = normalize(to_light);
+        let NdotL = max(dot(normal, L), 0.0);
         if (NdotL > 0.0) {
-            // Quadratic attenuation model
+            // Quadratic attenuation.
             let attenuation = light.intensity /
                 (attenuation_const + attenuation_lin * dist + attenuation_quad * dist * dist);
-
-            // Lambertian diffuse contribution
+            // Accumulate the light's diffuse contribution.
             final_color += albedo * light.color * NdotL * attenuation;
         }
     }

@@ -14,6 +14,8 @@ pub(crate) struct Globals {
     /// The camera's combined view-projection matrix.
     /// Stored as a row-major 4x4 for WGSL usage.
     pub view_proj: glam::Mat4,
+    /// Inverse view-projection matrix
+    pub inv_view_proj: glam::Mat4,
     /// The screen size
     pub screen_size: glam::Vec2,
     /// Time
@@ -27,6 +29,7 @@ impl Globals {
     pub fn new() -> Self {
         Self {
             view_proj: glam::Mat4::IDENTITY,
+            inv_view_proj: glam::Mat4::IDENTITY,
             screen_size: glam::Vec2::new(0.0, 0.0),
             time: 0.0,
             _padding: 0.0,
@@ -35,10 +38,11 @@ impl Globals {
 
     /// Update global data here—particularly the camera transform in `view_proj`.
     /// We'll call this each frame (or whenever the camera changes).
-    pub fn update_from_camera<T: Camera + ?Sized>(&mut self, camera: &T) {
-        let vp = camera.build_view_projection_matrix();
-        self.view_proj = vp;
-    }
+        pub fn update_from_camera<T: Camera + ?Sized>(&mut self, camera: &T) {
+            let vp = camera.build_view_projection_matrix();
+            self.view_proj = vp;
+            self.inv_view_proj = vp.inverse();
+        }
 
     /// Update the screen size
     pub fn update_screen_size(&mut self, width: f32, height: f32) {
