@@ -12,15 +12,19 @@ struct GlobalData {
 
 struct Light {
     position: vec3<f32>,
+    range: f32, // Maximum effective distance of the light
+    rotation: vec3<f32>,
     intensity: f32,
     color: vec3<f32>,
-    range: f32, // Maximum effective distance of the light
 };
 
 @group(0) @binding(0)
 var<uniform> global_data: GlobalData;
 
 @group(0) @binding(1)
+var<uniform> directional_light: Light;
+
+@group(0) @binding(2)
 var<storage> lights: array<Light>;
 
 // G-buffer textures (we no longer need a position texture)
@@ -92,7 +96,12 @@ fn deferred_fs(input: FragmentInput) -> @location(0) vec4<f32> {
     }
 
     // Start with a small ambient term.
-    var final_color = albedo * vec3<f32>(0.01);
+    var final_color = albedo * vec3<f32>(0.05);
+
+    // The directional light is a special case. We use the rotation field as the direction.
+    let L = normalize(-directional_light.rotation);
+    let NdotL = max(dot(normal, L), 0.0);
+    final_color += albedo * directional_light.color * NdotL * directional_light.intensity;
 
     // Attenuation constants.
     let attenuation_const = 1.0;
@@ -121,6 +130,7 @@ fn deferred_fs(input: FragmentInput) -> @location(0) vec4<f32> {
             final_color += albedo * light.color * NdotL * attenuation;
         }
     }
+
 
     return vec4<f32>(final_color, 1.0);
 }

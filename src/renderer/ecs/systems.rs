@@ -1,37 +1,55 @@
+// src/renderer/ecs/systems.rs
+
 use std::ops::Deref;
 use glam::vec3;
-use log::{error, info};
+use log::{error, info, warn};
 use rand::random;
-use shipyard::EntitiesViewMut;
-use shipyard::{IntoIter, UniqueView, UniqueViewMut, View, ViewMut};
-use wgpu::{Color, LoadOp, Operations, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, TextureFormat};
-use winit::event::KeyEvent;
+use shipyard::{
+    EntitiesViewMut, IntoIter, UniqueView, UniqueViewMut, View, ViewMut,
+};
+use wgpu::{
+    Color, LoadOp, Operations, RenderPassColorAttachment, RenderPassDepthStencilAttachment,
+    RenderPassDescriptor, StoreOp, TextureFormat,
+};
+use winit::event::{KeyEvent};
+use winit::keyboard::{KeyCode, PhysicalKey};
+
 use crate::renderer::ecs::components::*;
-use crate::renderer::State;
-use crate::renderer::ecs::render_graphics_view::RenderGraphicsViewMut;
-use crate::renderer::asset_manager::AssetManager;
-use crate::renderer::auto_mipmapper::AutoMipmapper;
 use crate::renderer::ecs::camera_component::CameraComponent;
 use crate::renderer::ecs::global_component::GlobalComponent;
+use crate::renderer::ecs::render_graphics_view::RenderGraphicsViewMut;
+use crate::renderer::asset_manager::AssetManager;
+use crate::renderer::State;
 use crate::renderer::types::camera::Camera;
 use crate::renderer::types::light::Light;
+use crate::renderer::types::light_type::LightType;
 use crate::renderer::types::sampler::SamplerParameters;
 use crate::renderer::types::transform::Transform;
 
-pub fn load_assets(mut state: UniqueViewMut<State>, mut asset_manager: UniqueViewMut<AssetManager>, mut auto_mipmapper: UniqueViewMut<AutoMipmapper>) {
+/// Loads assets (meshes, textures, shaders, materials, and screen textures)
+/// into the asset manager.
+pub fn load_assets(
+    mut state: UniqueViewMut<State>,
+    mut asset_manager: UniqueViewMut<AssetManager>,
+    mut auto_mipmapper: UniqueViewMut<crate::renderer::auto_mipmapper::AutoMipmapper>,
+) {
+    // Load mesh and texture.
     let mesh = asset_manager.get_or_create_mesh("assets/capsule.obj");
-    // load a texture
     let texture = asset_manager.get_or_create_texture("capsule_tex", "assets/capsule0.jpg");
 
-    let mut encoder = state.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("Texture Mipmapping Encoder"),
-    });
+    // Generate mipmaps for the texture.
+    let mut encoder = state
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Texture Mipmapping Encoder"),
+        });
     auto_mipmapper.generate_mipmaps(&mut encoder, &[texture.clone()], &[texture.mip_level_count]);
     state.queue.submit(std::iter::once(encoder.finish()));
 
-    // create a shader
+    // Create main shader.
     let shader = asset_manager.get_or_create_shader("main", "assets/shaders/shader.wgsl");
 
+    // Define a sampler.
     let sampler = SamplerParameters {
         address_mode_u: wgpu::AddressMode::ClampToEdge,
         address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -45,7 +63,7 @@ pub fn load_assets(mut state: UniqueViewMut<State>, mut asset_manager: UniqueVie
         ..Default::default()
     };
 
-    // create a material referencing that shader
+    // Create a material using the shader.
     let material = asset_manager.get_or_create_material("capsule_mat", "main");
     material.set_cull_mode(Some(wgpu::Face::Back));
     material.set_depth(true);
@@ -53,13 +71,22 @@ pub fn load_assets(mut state: UniqueViewMut<State>, mut asset_manager: UniqueVie
     material.set_texture("color_texture", texture.view.clone());
     material.set_sampler("color_sampler", sampler.clone());
 
+    // GBuffer setup.
+    let screen_size = state.get_screen_size();
+    let albedo_texture = asset_manager.get_or_create_screen_texture(
+        "albedo_texture", screen_size, wgpu::TextureFormat::Bgra8UnormSrgb,
+    );
+    let normal_texture = asset_manager.get_or_create_screen_texture(
+        "normal_texture", screen_size, wgpu::TextureFormat::Bgra8UnormSrgb,
+    );
+    let depth_texture = asset_manager.get_or_create_screen_texture(
+        "depth_texture", screen_size, wgpu::TextureFormat::Depth32Float,
+    );
+    let output_texture = asset_manager.get_or_create_screen_texture(
+        "output_texture", screen_size, wgpu::TextureFormat::Bgra8UnormSrgb,
+    );
 
-    // GBuffer
-    let albedo_texture = asset_manager.get_or_create_screen_texture("albedo_texture", state.get_screen_size(), wgpu::TextureFormat::Bgra8UnormSrgb);
-    let normal_texture = asset_manager.get_or_create_screen_texture("normal_texture", state.get_screen_size(), wgpu::TextureFormat::Bgra8UnormSrgb);
-    let depth_texture = asset_manager.get_or_create_screen_texture("depth_texture", state.get_screen_size(), wgpu::TextureFormat::Depth32Float);
-
-    let output_texture = asset_manager.get_or_create_screen_texture("output_texture", state.get_screen_size(), wgpu::TextureFormat::Bgra8UnormSrgb);
+    // Create a deferred (GBuffer) shader and material.
     let gbuffer_shader = asset_manager.get_or_create_shader("gbuffer", "assets/shaders/deferred.wgsl");
     let gbuffer_material = asset_manager.get_or_create_material("gbuffer_mat", "gbuffer");
     gbuffer_material.set_cull_mode(None);
@@ -70,140 +97,167 @@ pub fn load_assets(mut state: UniqueViewMut<State>, mut asset_manager: UniqueVie
     gbuffer_material.set_texture("g_depth", depth_texture.view.clone());
     gbuffer_material.set_sampler("g_sampler", sampler.clone());
 
+    // Create a post-processing shader and material.
     let post_processing_shader = asset_manager.get_or_create_shader("invert", "assets/shaders/post_process.wgsl");
     let post_processing_material = asset_manager.get_or_create_material("invert_mat", "invert");
     post_processing_material.set_cull_mode(None);
     post_processing_material.set_depth(false);
     post_processing_material.set_transparent(false);
     post_processing_material.set_sampler("u_sampler", sampler.clone());
-
-
-}
-pub fn add_entities(mut entities: EntitiesViewMut, asset_manager: UniqueView<AssetManager>, mut lights: ViewMut<LightComponent>, mut meshes: ViewMut<MeshComponent>, mut materials: ViewMut<MaterialComponent>, mut transforms: ViewMut<TransformComponent>){
-    entities.bulk_add_entity((&mut meshes, &mut materials, &mut transforms), (0..500).map(|n| {
-        let mesh_component = MeshComponent{
-            mesh: asset_manager.get_mesh_by_name("assets/capsule.obj").unwrap()
-        };
-        let material_component = MaterialComponent{
-            material: asset_manager.get_material_by_name("capsule_mat").unwrap()
-        };
-
-        let mut transform = Transform::new();
-        //
-        let x: f32 = random::<f32>() * 30.0 - 15.0;
-        let z: f32 = random::<f32>() * 30.0 - 15.0;
-        transform.translate(vec3(x * 2.0 - 10.0, 0.0, z * 2.0 - 10.0));
-        transform.rotate(glam::Quat::from_euler(glam::EulerRot::YXZ, random::<f32>() * 360.0, random::<f32>() * 360.0, random::<f32>() * 360.0));
-        transform.scale(vec3(0.5, 0.5, 0.5));
-        let transform_component = TransformComponent{
-            transform
-        };
-        (mesh_component, material_component, transform_component)
-    }));
-
-
-
-
-    entities.bulk_add_entity((&mut lights, &mut transforms), (0..1).map(|n| {
-        // Scatter a few lights around
-        let mut light_transform = Transform::new();
-        light_transform.translate(vec3(
-            random::<f32>() * 25.0 - 12.5,
-            2.0,
-            random::<f32>() * 25.0 - 12.5,
-        ));
-
-        let color = vec3(random::<f32>(), random::<f32>(), random::<f32>());
-        // Random intensity
-        let intensity = random::<f32>() * 10.0 + 10.0;
-
-        let range = 10.0;
-        let light = Light::new(light_transform.translation(), color, intensity, range);
-        let light_component = LightComponent{
-            light
-        };
-
-        let transform_component = TransformComponent{
-            transform: light_transform
-        };
-        (light_component, transform_component)
-    }));
 }
 
+/// Adds entities to the ECS world.
+pub fn add_entities(
+    mut entities: EntitiesViewMut,
+    asset_manager: UniqueView<AssetManager>,
+    mut meshes: ViewMut<MeshComponent>,
+    mut materials: ViewMut<MaterialComponent>,
+    mut transforms: ViewMut<TransformComponent>,
+    mut lights: ViewMut<LightComponent>,
+) {
+    // Spawn many renderable entities.
+    entities.bulk_add_entity(
+        (&mut meshes, &mut materials, &mut transforms),
+        (0..500).map(|_| {
+            let mesh_component = MeshComponent {
+                mesh: asset_manager.get_mesh_by_name("assets/capsule.obj").unwrap(),
+            };
+            let material_component = MaterialComponent {
+                material: asset_manager.get_material_by_name("capsule_mat").unwrap(),
+            };
+
+            let mut transform = Transform::new();
+            // Randomize position.
+            let x: f32 = random::<f32>() * 30.0 - 15.0;
+            let z: f32 = random::<f32>() * 30.0 - 15.0;
+            transform.translate(vec3(x * 2.0 - 10.0, 0.0, z * 2.0 - 10.0));
+            // Random rotation.
+            transform.rotate(glam::Quat::from_euler(
+                glam::EulerRot::YXZ,
+                random::<f32>() * 360.0,
+                random::<f32>() * 360.0,
+                random::<f32>() * 360.0,
+            ));
+            // Scale.
+            transform.scale(vec3(0.5, 0.5, 0.5));
+            let transform_component = TransformComponent { transform };
+
+            (mesh_component, material_component, transform_component)
+        }),
+    );
+
+    // Spawn a few light entities.
+    entities.bulk_add_entity(
+        (&mut lights, &mut transforms),
+        (0..1).map(|_| {
+            let mut light_transform = Transform::new();
+            light_transform.translate(vec3(
+                random::<f32>() * 25.0 - 12.5,
+                2.0,
+                random::<f32>() * 25.0 - 12.5,
+            ));
+            let color = vec3(1.0, 0.0, 0.0);
+            let intensity = random::<f32>() * 10.0 + 10.0;
+            let range = 10.0;
+            let rotation = vec3(0.0, 0.0, 0.0);
+            let light = Light::new(light_transform.translation(), rotation, color, intensity, range);
+            let light_component = LightComponent::new(light, LightType::Point);
+            let transform_component = TransformComponent { transform: light_transform };
+
+            (light_component, transform_component)
+        }),
+    );
+}
+
+/// Handles keyboard input for the camera.
 pub fn handle_keyboard_input(key_event: KeyEvent, mut camera_component: UniqueViewMut<CameraComponent>) {
     camera_component.camera.process_keyboard(key_event);
 }
 
-pub fn handle_mouse_input(delta: (f64, f64), mut state: UniqueViewMut<CameraComponent>) {
-    state.camera.process_mouse(delta.0 as f32, delta.1 as f32);
+/// Handles mouse input for the camera.
+pub fn handle_mouse_input(delta: (f64, f64), mut camera_component: UniqueViewMut<CameraComponent>) {
+    camera_component.camera.process_mouse(delta.0 as f32, delta.1 as f32);
 }
 
-pub fn resize_system((width, height): (u32, u32), mut state: UniqueViewMut<State>, mut asset_manager: UniqueViewMut<AssetManager>, mut camera_component: UniqueViewMut<CameraComponent>, mut global_component: UniqueViewMut<GlobalComponent>) {
+/// Handles window resize events.
+pub fn resize_system(
+    (width, height): (u32, u32),
+    mut state: UniqueViewMut<State>,
+    mut asset_manager: UniqueViewMut<AssetManager>,
+    mut camera_component: UniqueViewMut<CameraComponent>,
+    mut global_component: UniqueViewMut<GlobalComponent>,
+) {
     state.trigger_resize(width, height);
     camera_component.camera.resize(width as f32, height as f32);
     global_component.global_data.update_screen_size(width as f32, height as f32);
-    // Resize the output texture
+
+    // Replace screen textures in the asset manager.
     asset_manager.replace_screen_texture("output_texture", (width, height), TextureFormat::Bgra8UnormSrgb, false);
-    // Resize the GBuffer textures
     asset_manager.replace_screen_texture("albedo_texture", (width, height), TextureFormat::Bgra8UnormSrgb, false);
     asset_manager.replace_screen_texture("normal_texture", (width, height), TextureFormat::Bgra8UnormSrgb, false);
     asset_manager.replace_screen_texture("depth_texture", (width, height), TextureFormat::Depth32Float, false);
 }
 
-pub fn update_system(mut state: UniqueViewMut<State>, mut global_component: UniqueViewMut<GlobalComponent>, mut camera_component: UniqueViewMut<CameraComponent>) {
+/// Updates global state, camera, and global uniform buffer.
+pub fn update_system(
+    mut state: UniqueViewMut<State>,
+    mut global_component: UniqueViewMut<GlobalComponent>,
+    mut camera_component: UniqueViewMut<CameraComponent>,
+) {
     state.update();
     let time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs_f32();
-
     global_component.global_data.update(time);
     camera_component.camera.update(state.delta_time);
     global_component.global_data.update_from_camera(camera_component.camera.deref());
     global_component.global_uniform_buffer.update(&global_component.global_data);
 }
 
-pub fn light_update_system(mut global_component: UniqueViewMut<GlobalComponent>, mut lights: ViewMut<LightComponent>) {
+/// Updates light data from light components into the global light storage.
+pub fn light_update_system(
+    mut global_component: UniqueViewMut<GlobalComponent>,
+    mut lights: ViewMut<LightComponent>,
+) {
     let mut light_data = Vec::new();
     (&mut lights).iter().for_each(|light| {
         light_data.push(light.light);
     });
-    global_component.light_storage.set_lights(light_data);
+    global_component.point_light_storage.set_lights(light_data);
 
-    if global_component.light_storage.needs_rebuild {
+    if global_component.point_light_storage.needs_rebuild {
         info!("Rebuilding light storage buffer");
         global_component.reconstruct_bind_group();
-        global_component.light_storage.needs_rebuild = false;
+        global_component.point_light_storage.needs_rebuild = false;
     }
 
-    global_component.light_storage.update_buffer();
-
-
+    global_component.point_light_storage.update_buffer();
 }
 
+/// Main render system: performs multiple passes (depth-enabled, GBuffer composite, post-processing).
 pub fn render_system(
     mut graphics: RenderGraphicsViewMut,
     asset_manager: UniqueView<AssetManager>,
     mesh_comps: View<MeshComponent>,
     mat_comps: View<MaterialComponent>,
-    transform_comps: View<TransformComponent>
+    transform_comps: View<TransformComponent>,
 ) {
-    // Get textures once.
+    // Retrieve textures and material pipelines.
     let albedo_tex = asset_manager.get_texture_by_name("albedo_texture").unwrap();
     let normal_tex = asset_manager.get_texture_by_name("normal_texture").unwrap();
     let depth_tex = asset_manager.get_texture_by_name("depth_texture").unwrap();
     let output_tex = asset_manager.get_texture_by_name("output_texture").unwrap();
 
-    // Cache texture views and pipelines.
-    let albedo_view = &albedo_tex.view;
-    let normal_view = &normal_tex.view;
-    let depth_view = &depth_tex.view;
-    let output_view = &output_tex.view;
+    let albedo_view = albedo_tex.view.clone();
+    let normal_view = normal_tex.view.clone();
+    let depth_view = depth_tex.view.clone();
+    let output_view = output_tex.view.clone();
 
     let gbuffer_material = asset_manager.get_material_by_name("gbuffer_mat").unwrap();
     let gbuffer_pipeline = gbuffer_material.get_pipeline();
 
-    // Update textures for GBuffer material.
+    // Update GBuffer material with latest texture views.
     gbuffer_material.set_texture("g_albedo", albedo_view.clone());
     gbuffer_material.set_texture("g_normal", normal_view.clone());
     gbuffer_material.set_texture("g_depth", depth_view.clone());
@@ -212,18 +266,16 @@ pub fn render_system(
     let post_processing_pipeline = post_processing_material.get_pipeline();
     post_processing_material.set_texture("u_texture", output_view.clone());
 
-    // Define a clear color constant.
-
     // ---- Depth-Enabled Render Pass (GBuffer population) ----
     {
         let mut render_pass = graphics.encoder.as_mut().unwrap().begin_render_pass(&RenderPassDescriptor {
             label: Some("Depth Render Pass"),
             color_attachments: &[
-                Some(generate_color_attachment(albedo_view)),
-                Some(generate_color_attachment(normal_view)),
+                Some(generate_color_attachment(&albedo_view)),
+                Some(generate_color_attachment(&normal_view)),
             ],
             depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                view: depth_view,
+                view: &depth_view,
                 depth_ops: Some(Operations {
                     load: LoadOp::Clear(1.0),
                     store: StoreOp::Store,
@@ -237,7 +289,7 @@ pub fn render_system(
         // Bind global resources (group 0)
         render_pass.set_bind_group(0, &*graphics.global_component.global_bind_group, &[]);
 
-        // Render all mesh entities that write depth.
+        // Render all mesh entities that require depth writing.
         (&mesh_comps, &mat_comps, &transform_comps).iter().for_each(|(mesh_comp, mat_comp, transform_comp)| {
             if !mat_comp.material.get_depth() {
                 return;
@@ -246,8 +298,11 @@ pub fn render_system(
             render_pass.set_pipeline(&mat_comp.material.get_pipeline());
             mat_comp.material.bind(&mut render_pass);
 
-            // Set per-object transform using push constants.
-            render_pass.set_push_constants(wgpu::ShaderStages::VERTEX_FRAGMENT, 0, bytemuck::cast_slice(&[transform_comp.transform]));
+            render_pass.set_push_constants(
+                wgpu::ShaderStages::VERTEX_FRAGMENT,
+                0,
+                bytemuck::cast_slice(&[transform_comp.transform]),
+            );
 
             mesh_comp.mesh.draw(&mut render_pass);
         });
@@ -257,7 +312,7 @@ pub fn render_system(
     {
         let mut render_pass = graphics.encoder.as_mut().unwrap().begin_render_pass(&RenderPassDescriptor {
             label: Some("GBuffer Pass"),
-            color_attachments: &[Some(generate_color_attachment(output_view))],
+            color_attachments: &[Some(generate_color_attachment(&output_view))],
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
@@ -286,6 +341,7 @@ pub fn render_system(
     }
 }
 
+/// Helper function to create a RenderPassColorAttachment with a clear color.
 fn generate_color_attachment(view: &wgpu::TextureView) -> RenderPassColorAttachment {
     RenderPassColorAttachment {
         view,

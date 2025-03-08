@@ -4,18 +4,22 @@ use crate::renderer::types::uniform::Uniform;
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct Light{
     pub position: glam::Vec3,
+    pub range: f32,
+    pub rotation: glam::Vec3, // Only applicable for directional lights and spotlights
     pub intensity: f32,
     pub color: glam::Vec3,
-    pub range: f32,
+    _padding: f32,
 }
 
 impl Light{
-    pub fn new(position: glam::Vec3, color: glam::Vec3, intensity: f32, range: f32) -> Self{
+    pub fn new(position: glam::Vec3, rotation: glam::Vec3, color: glam::Vec3, intensity: f32, range: f32) -> Self{
         Self{
             position,
+            rotation,
             color,
             intensity,
             range,
+            _padding: 0.0,
         }
     }
 }

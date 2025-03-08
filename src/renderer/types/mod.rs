@@ -11,3 +11,4 @@ pub mod transform;
 pub mod uniform;
 pub mod light;
 pub mod light_storage;
+pub mod light_type;

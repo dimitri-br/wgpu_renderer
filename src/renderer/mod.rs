@@ -41,8 +41,14 @@ impl State {
     pub async fn new(window: Arc<Window>) -> Self {
         info!("Initializing state...");
         let instance = Instance::new(&InstanceDescriptor {
-            backends: Backends::VULKAN,
-            flags: InstanceFlags::all(),
+            backends: if cfg!(target_arch = "wasm32") {
+                Backends::BROWSER_WEBGPU
+            } else if cfg!(target_os = "macos") {
+                Backends::METAL
+            } else {
+                Backends::DX12
+            },
+            flags: InstanceFlags::default(),
             backend_options: Default::default(),
         });
 

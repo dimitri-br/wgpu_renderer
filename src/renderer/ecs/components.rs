@@ -4,6 +4,8 @@ use crate::renderer::types::gpu_mesh::GpuMesh;
 use crate::renderer::types::transform::Transform;
 use shipyard::*;
 use crate::renderer::types::light::Light;
+use crate::renderer::types::light_type::LightType;
+use crate::renderer::types::texture::Texture;
 
 #[derive(Component)]
 pub struct MeshComponent {
@@ -59,19 +61,23 @@ impl From<Transform> for TransformComponent {
 
 #[derive(Component)]
 pub struct LightComponent{
-    pub(crate) light: Light
+    pub(crate) light: Light,
+    pub(crate) light_type: LightType,
+    pub(crate) shadow_map: Option<Texture>,
 }
 
 impl LightComponent{
-    pub fn new(light: Light) -> Self{
+    pub fn new(light: Light, light_type: LightType) -> Self{
         Self{
-            light
+            light,
+            light_type,
+            shadow_map: None,
         }
     }
 }
 
 impl From<Light> for LightComponent{
     fn from(light: Light) -> Self{
-        Self::new(light)
+        Self::new(light, LightType::Directional)
     }
 }
