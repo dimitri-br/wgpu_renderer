@@ -400,7 +400,6 @@ impl Shader {
                     // Return an error for unsupported fragment shader output types.
                     _ => {
                         error!("Unsupported fragment shader output type: {:?}", output.ty);
-                        return Err("Unsupported fragment shader output type");
                     }
                 }
             }

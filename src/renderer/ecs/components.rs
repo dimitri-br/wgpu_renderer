@@ -1,8 +1,10 @@
+use std::ops::Deref;
 use std::sync::Arc;
 use crate::renderer::types::material::Material;
 use crate::renderer::types::gpu_mesh::GpuMesh;
 use crate::renderer::types::transform::Transform;
 use shipyard::*;
+use crate::renderer::shadow_atlas::AtlasTile;
 use crate::renderer::types::light::Light;
 use crate::renderer::types::light_type::LightType;
 use crate::renderer::types::texture::Texture;
@@ -24,6 +26,14 @@ impl From<Arc<GpuMesh>> for MeshComponent {
     }
 }
 
+impl Deref for MeshComponent {
+    type Target = GpuMesh;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.mesh
+    }
+}
+
 #[derive(Component)]
 pub struct MaterialComponent {
     pub material: Arc<Material>,
@@ -41,6 +51,14 @@ impl From<Arc<Material>> for MaterialComponent {
     }
 }
 
+impl Deref for MaterialComponent {
+    type Target = Material;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.material
+    }
+}
+
 #[derive(Component)]
 pub struct TransformComponent {
     pub transform: Transform,
@@ -55,6 +73,14 @@ impl TransformComponent {
 impl From<Transform> for TransformComponent {
     fn from(transform: Transform) -> Self {
         Self::new(transform)
+    }
+}
+
+impl Deref for TransformComponent {
+    type Target = Transform;
+
+    fn deref(&self) -> &Self::Target {
+        &self.transform
     }
 }
 
@@ -79,5 +105,64 @@ impl LightComponent{
 impl From<Light> for LightComponent{
     fn from(light: Light) -> Self{
         Self::new(light, LightType::Directional)
+    }
+}
+
+impl Deref for LightComponent{
+    type Target = Light;
+
+    fn deref(&self) -> &Self::Target{
+        &self.light
+    }
+}
+
+#[derive(Component)]
+pub struct ShadowMapComponent {
+    pub tile: AtlasTile,
+    // plus additional data: light's projection matrix, etc.
+}
+
+impl ShadowMapComponent {
+    pub fn new(tile: AtlasTile) -> Self {
+        Self { tile }
+    }
+}
+
+impl From<AtlasTile> for ShadowMapComponent {
+    fn from(tile: AtlasTile) -> Self {
+        Self::new(tile)
+    }
+}
+
+impl Deref for ShadowMapComponent {
+    type Target = AtlasTile;
+
+    fn deref(&self) -> &Self::Target {
+        &self.tile
+    }
+}
+
+#[derive(Component)]
+pub struct ShadowCastComponent {
+    pub(crate) shadow_cast: bool,
+}
+
+impl ShadowCastComponent {
+    pub fn new(shadow_cast: bool) -> Self {
+        Self { shadow_cast }
+    }
+}
+
+impl From<bool> for ShadowCastComponent {
+    fn from(shadow_cast: bool) -> Self {
+        Self::new(shadow_cast)
+    }
+}
+
+impl Deref for ShadowCastComponent {
+    type Target = bool;
+
+    fn deref(&self) -> &Self::Target {
+        &self.shadow_cast
     }
 }

@@ -3,7 +3,9 @@ use std::sync::Arc;
 use log::warn;
 use shipyard::{AllStorages, SharedBorrow, TrackingTimestamp, UniqueView, UniqueViewMut};
 use wgpu::SurfaceError;
+use crate::renderer::ecs::camera_component::CameraComponent;
 use crate::renderer::ecs::global_component::GlobalComponent;
+use crate::renderer::shadow_atlas::ShadowAtlas;
 use crate::renderer::State;
 
 pub struct RenderGraphicsViewMut<'v> {
@@ -12,7 +14,9 @@ pub struct RenderGraphicsViewMut<'v> {
     // New fields
     pub output: Option<wgpu::SurfaceTexture>,
     pub state: UniqueViewMut<'v, State>,
-    pub global_component: UniqueView<'v, GlobalComponent>
+    pub global_component: UniqueView<'v, GlobalComponent>,
+    pub camera_component: UniqueView<'v, CameraComponent>,
+    pub shadow_atlas: UniqueViewMut<'v, ShadowAtlas>,
 }
 
 impl shipyard::Borrow for RenderGraphicsViewMut<'_> {
@@ -29,7 +33,9 @@ impl shipyard::Borrow for RenderGraphicsViewMut<'_> {
             UniqueViewMut::<State>::borrow(&all_storages, all_borrow.clone(), last_run, current)?;
         state.resize();
 
-        let global_component = UniqueView::<GlobalComponent>::borrow(&all_storages, all_borrow, last_run, current)?;
+        let global_component = UniqueView::<GlobalComponent>::borrow(&all_storages, all_borrow.clone(), last_run, current)?;
+        let camera_component = UniqueView::<CameraComponent>::borrow(&all_storages, all_borrow.clone(), last_run, current)?;
+        let shadow_atlas = UniqueViewMut::<ShadowAtlas>::borrow(&all_storages, all_borrow, last_run, current)?;
 
         // This error will now be reported as an error during the view creation process and not the system but is still bubbled up
         let output = try_get_texture(&state, state.surface.get_current_texture()).unwrap();
@@ -52,7 +58,9 @@ impl shipyard::Borrow for RenderGraphicsViewMut<'_> {
             view: Arc::new(view),
             output: Some(output),
             state,
-            global_component
+            global_component,
+            camera_component,
+            shadow_atlas,
         })
     }
 }

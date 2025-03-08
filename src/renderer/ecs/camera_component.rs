@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::sync::Arc;
 use shipyard::Unique;
 use crate::renderer::types::camera::Camera;
@@ -19,5 +20,13 @@ impl CameraComponent{
 impl<T: Camera + 'static> From<T> for CameraComponent {
     fn from(camera: T) -> Self {
         Self::new(camera)
+    }
+}
+
+impl Deref for CameraComponent{
+    type Target = dyn Camera;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.camera
     }
 }

@@ -1,6 +1,12 @@
 use glam::Mat4;
 
 pub trait Camera: Send + Sync {
+    /// Get the camera's position.
+    fn position(&self) -> glam::Vec3;
+    /// Get the camera's view matrix.
+    fn build_view_matrix(&self) -> Mat4;
+    /// Get the camera's projection matrix.
+    fn build_projection_matrix(&self) -> Mat4;
     /// Get the camera's view-projection matrix.
     fn build_view_projection_matrix(&self) -> Mat4;
     /// Update the camera's aspect ratio.

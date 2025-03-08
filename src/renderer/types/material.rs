@@ -1,5 +1,5 @@
 use crate::renderer::bind_group_cache::{BindGroupCache, BindGroupKey};
-use log::{error, warn};
+use log::{error, info, warn};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::sync::atomic::AtomicBool;
@@ -176,7 +176,11 @@ impl Material {
                             depth_write_enabled: true,
                             depth_compare: wgpu::CompareFunction::LessEqual,
                             stencil: StencilState::default(),
-                            bias: DepthBiasState::default()
+                            bias: DepthBiasState {
+                                constant: 2,
+                                slope_scale: 2.0,
+                                clamp: 0.0,
+                            }
                         }
                     )
                 }else{
@@ -227,6 +231,7 @@ impl Material {
             param_name.to_string(),
             MaterialResource::UniformBuffer(buffer),
         );
+
         self.bind_group_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 

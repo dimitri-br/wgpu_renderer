@@ -206,6 +206,18 @@ impl FpsCamera {
 }
 
 impl Camera for FpsCamera {
+    fn position(&self) -> Vec3 {
+        self.position
+    }
+
+    fn build_view_matrix(&self) -> Mat4 {
+        self.build_view_matrix()
+    }
+
+    fn build_projection_matrix(&self) -> Mat4 {
+        Mat4::perspective_rh_gl(self.fovy, self.aspect, self.znear, self.zfar)
+    }
+
     fn build_view_projection_matrix(&self) -> Mat4 {
         self.build_vp()
     }

@@ -5,6 +5,7 @@ pub mod pipeline_manager;
 pub mod shader_reflect;
 pub mod ecs;
 pub mod auto_mipmapper;
+pub mod shadow_atlas;
 
 use std::sync::Arc;
 use log::{error, info};

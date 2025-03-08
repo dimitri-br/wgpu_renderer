@@ -22,6 +22,7 @@ use renderer::ecs::global_component::GlobalComponent;
 use crate::renderer::auto_mipmapper::AutoMipmapper;
 use crate::renderer::ecs::camera_component::CameraComponent;
 use crate::renderer::ecs::systems::light_update_system;
+use crate::renderer::shadow_atlas::ShadowAtlas;
 use crate::renderer::types::fps_camera::FpsCamera;
 use crate::renderer::types::global::Globals;
 
@@ -48,14 +49,15 @@ fn main() {
         state.bind_group_cache.clone(),
     );
     let auto_mipmapper = AutoMipmapper::new(state.device.clone(), wgpu::TextureFormat::Rgba8UnormSrgb);
-    let global_component = GlobalComponent::new(&state);
+    let mut shadow_atlas = ShadowAtlas::new(&state.device.clone(), &state.queue.clone(), 2048*4, 2048*4, wgpu::TextureFormat::Depth32Float);
+    let global_component = GlobalComponent::new(&state, &mut shadow_atlas);
 
     let camera_component: CameraComponent = FpsCamera::new(
         glam::vec3(0.0, 0.0, -3.0),
         0.0, 0.0,
         45.0,
         state.get_aspect_ratio(),
-        0.1, 100.0,
+        0.1, 50.0,
         1.0,
         0.01,
     ).into();
@@ -63,6 +65,7 @@ fn main() {
     world.add_unique(state);
     world.add_unique(asset_manager);
     world.add_unique(auto_mipmapper);
+    world.add_unique(shadow_atlas);
     world.add_unique(global_component);
     world.add_unique(camera_component);
 
