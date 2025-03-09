@@ -25,6 +25,7 @@ use crate::renderer::State;
 use crate::renderer::types::camera::Camera;
 use crate::renderer::types::light::Light;
 use crate::renderer::types::light_type::LightType;
+use crate::renderer::types::material::Material;
 use crate::renderer::types::sampler::SamplerParameters;
 use crate::renderer::types::transform::Transform;
 use crate::renderer::types::uniform::{Uniform, UniformBuffer};
@@ -44,47 +45,6 @@ pub fn load_assets(
     let box_mesh = asset_manager.get_or_create_mesh("assets/box.obj");
     let white_texture = asset_manager.get_or_create_texture("white_tex", "assets/solid_white.png");
 
-    // Generate mipmaps for the texture.
-    let mut encoder = state
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Texture Mipmapping Encoder"),
-        });
-    auto_mipmapper.generate_mipmaps(&mut encoder, &[texture.clone()], &[texture.mip_level_count]);
-    state.queue.submit(std::iter::once(encoder.finish()));
-
-    // Create main shader.
-    let shader = asset_manager.get_or_create_shader("main", "assets/shaders/shader.wgsl");
-
-    // Define a sampler.
-    let sampler = SamplerParameters {
-        address_mode_u: wgpu::AddressMode::ClampToEdge,
-        address_mode_v: wgpu::AddressMode::ClampToEdge,
-        address_mode_w: wgpu::AddressMode::ClampToEdge,
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::FilterMode::Linear,
-        lod_min_clamp: 0.0,
-        lod_max_clamp: 4.0,
-        anisotropy_clamp: 16,
-        ..Default::default()
-    };
-
-    // Create a material using the shader.
-    let material = asset_manager.get_or_create_material("capsule_mat", "main");
-    material.set_cull_mode(Some(wgpu::Face::Back));
-    material.set_depth(true);
-    material.set_transparent(false);
-    material.set_texture("color_texture", texture.view.clone());
-    material.set_sampler("color_sampler", sampler.clone());
-
-    let box_material = asset_manager.get_or_create_material("box_mat", "main");
-    box_material.set_cull_mode(Some(wgpu::Face::Back));
-    box_material.set_depth(true);
-    box_material.set_transparent(false);
-    box_material.set_texture("color_texture", white_texture.view.clone());
-    box_material.set_sampler("color_sampler", sampler.clone());
-
     // GBuffer setup.
     let screen_size = state.get_screen_size();
     let albedo_texture = asset_manager.get_or_create_screen_texture(
@@ -100,33 +60,91 @@ pub fn load_assets(
         "output_texture", screen_size, wgpu::TextureFormat::Bgra8UnormSrgb,
     );
 
-    // Create a deferred (GBuffer) shader and material.
-    let gbuffer_shader = asset_manager.get_or_create_shader("gbuffer", "assets/shaders/deferred.wgsl");
-    let gbuffer_material = asset_manager.get_or_create_material("gbuffer_mat", "gbuffer");
-    gbuffer_material.set_cull_mode(None);
-    gbuffer_material.set_depth(false);
-    gbuffer_material.set_transparent(false);
-    gbuffer_material.set_texture("g_albedo", albedo_texture.view.clone());
-    gbuffer_material.set_texture("g_normal", normal_texture.view.clone());
-    gbuffer_material.set_texture("g_depth", depth_texture.view.clone());
-    gbuffer_material.set_sampler("g_sampler", sampler.clone());
-    gbuffer_material.set_sampler("shadow_sampler", shadow_atlas.shadow_sampler.clone());
+    // Generate mipmaps for the texture.
+    let mut encoder = state
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Texture Mipmapping Encoder"),
+        });
+    auto_mipmapper.generate_mipmaps(&mut encoder, &[texture.clone()], &[texture.mip_level_count]);
+    state.queue.submit(std::iter::once(encoder.finish()));
 
-    // Create a post-processing shader and material.
-    let post_processing_shader = asset_manager.get_or_create_shader("invert", "assets/shaders/post_process.wgsl");
-    let post_processing_material = asset_manager.get_or_create_material("invert_mat", "invert");
-    post_processing_material.set_cull_mode(None);
-    post_processing_material.set_depth(false);
-    post_processing_material.set_transparent(false);
-    post_processing_material.set_sampler("u_sampler", sampler.clone());
+    // Load shaders.
+    asset_manager.get_or_create_shader("main", "assets/shaders/shader.wgsl");
+    asset_manager.get_or_create_shader("shadow", "assets/shaders/shadow.wgsl");
+    asset_manager.get_or_create_shader("gbuffer", "assets/shaders/deferred.wgsl");
+    asset_manager.get_or_create_shader("invert", "assets/shaders/post_process.wgsl");
 
-    // Get the shadow shader
-    let shadow_shader = asset_manager.get_or_create_shader("shadow", "assets/shaders/shadow.wgsl");
-    // Create the shadow material
-    let shadow_material = asset_manager.get_or_create_material("shadow_mat", "shadow");
-    shadow_material.set_cull_mode(Some(wgpu::Face::Front));
-    shadow_material.set_depth(true);
+    // Define a sampler.
+    let sampler = SamplerParameters {
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::FilterMode::Linear,
+        lod_min_clamp: 0.0,
+        lod_max_clamp: 4.0,
+        anisotropy_clamp: 16,
+        ..Default::default()
+    };
+
+    // Capsule material but with the helper function
+    create_material_with(&mut asset_manager, "capsule_mat", "main", |material| {
+        material.set_cull_mode(Some(wgpu::Face::Back));
+        material.set_depth(true);
+        material.set_transparent(false);
+        material.set_texture("color_texture", texture.view.clone());
+        material.set_sampler("color_sampler", sampler.clone());
+    });
+
+    create_material_with(&mut asset_manager, "box_mat", "main", |material| {
+        material.set_cull_mode(Some(wgpu::Face::Back));
+        material.set_depth(true);
+        material.set_transparent(false);
+        material.set_texture("color_texture", white_texture.view.clone());
+        material.set_sampler("color_sampler", sampler.clone());
+    });
+
+    create_material_with(&mut asset_manager, "gbuffer_mat", "gbuffer", |material| {
+        material.set_cull_mode(None);
+        material.set_depth(false);
+        material.set_transparent(false);
+        material.set_texture("g_albedo", albedo_texture.view.clone());
+        material.set_texture("g_normal", normal_texture.view.clone());
+        material.set_texture("g_depth", depth_texture.view.clone());
+        material.set_sampler("g_sampler", sampler.clone());
+        material.set_sampler("shadow_sampler", shadow_atlas.shadow_sampler.clone());
+    });
+
+    create_material_with(&mut asset_manager, "invert_mat", "invert", |material| {
+        material.set_cull_mode(None);
+        material.set_depth(false);
+        material.set_transparent(false);
+        material.set_sampler("u_sampler", sampler.clone());
+    });
+
+    create_material_with(&mut asset_manager, "shadow_mat", "shadow", |material| {
+        material.set_cull_mode(Some(wgpu::Face::Front));
+        material.set_depth(true);
+        material.set_transparent(false);
+    });
 }
+
+fn create_material_with<F>(
+    asset_manager: &mut AssetManager,
+    name: &str,
+    shader_name: &str,
+    config: F,
+) -> Arc<Material>
+where
+    F: FnOnce(Arc<Material>)
+{
+    let material = asset_manager.get_or_create_material(name, shader_name);
+    config(material.clone());
+    material
+}
+
 
 /// Adds entities to the ECS world.
 pub fn add_entities(
@@ -403,11 +421,16 @@ pub fn render_system(
     // but the shader uses the negative of that value as the light's direction.
     let light = &mut graphics.global_component.directional_light.unwrap();
 
+    let camera = &graphics.camera_component.camera;
+    let camera_pos = camera.position();
+
     // Compute a normalized light direction (make sure light.rotation is a proper direction).
     let light_dir = -light.rotation.normalize(); // Negate if the shader uses -direction
 
     // Choose a scene center (this might be a fixed point or the center of your scene)
-    let scene_center = glam::Vec3::ZERO;
+    let mut scene_center = camera_pos;
+    // Zero out the y component
+    scene_center.y = 0.0;
 
     // Pick a distance such that the orthographic bounds cover your scene.
     let light_distance = -50.0;
@@ -470,7 +493,6 @@ pub fn render_system(
             }
         });
     }
-
 
     // ---- GBuffer Composite Pass ----
     {
