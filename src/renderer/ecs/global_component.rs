@@ -29,6 +29,7 @@ impl Uniform for ShadowData {
 #[derive(Unique)]
 pub struct GlobalComponent{
     pub directional_light: Option<Light>,
+    pub directional_light_view_proj: glam::Mat4,
     pub directional_light_shadow_map: Option<Arc<RwLock<AtlasTile>>>,
     pub directional_light_buffer: Option<Arc<UniformBuffer>>,
 
@@ -134,6 +135,7 @@ impl GlobalComponent {
 
         Self {
             directional_light: Some(directional_light),
+            directional_light_view_proj: glam::Mat4::IDENTITY,
             directional_light_shadow_map: Some(directional_shadow_map),
             directional_light_buffer: Some(directional_light_buffer),
 

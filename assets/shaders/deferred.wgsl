@@ -164,6 +164,12 @@ fn deferred_fs(input: FragmentInput) -> @location(0) vec4<f32> {
     }
     var shadow_factor = pcf_sum / 9.0;
 
+    // If we're outside the uv range, don't shadow.
+    if (shadow_coord.x < 0.0 || shadow_coord.x > 1.0 ||
+        shadow_coord.y < 0.0 || shadow_coord.y > 1.0) {
+        shadow_factor = 1.0;
+    }
+    
     // Optionally darken if the factor is below some threshold (your code):
     if (shadow_factor < 0.5) {
         final_color *= 0.5;

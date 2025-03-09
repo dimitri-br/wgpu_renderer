@@ -20,6 +20,7 @@ use crate::renderer::ecs::camera_component::CameraComponent;
 use crate::renderer::ecs::global_component::GlobalComponent;
 use crate::renderer::ecs::render_graphics_view::RenderGraphicsViewMut;
 use crate::renderer::asset_manager::AssetManager;
+use crate::renderer::render_graph::{RenderGraph, RenderGraphContext, RenderGraphNode};
 use crate::renderer::shadow_atlas::ShadowAtlas;
 use crate::renderer::State;
 use crate::renderer::types::camera::Camera;
@@ -283,6 +284,7 @@ pub fn resize_system(
     mut asset_manager: UniqueViewMut<AssetManager>,
     mut camera_component: UniqueViewMut<CameraComponent>,
     mut global_component: UniqueViewMut<GlobalComponent>,
+    shadow_atlas: UniqueView<ShadowAtlas>,
 ) {
     state.trigger_resize(width, height);
     camera_component.camera.resize(width as f32, height as f32);
@@ -293,6 +295,30 @@ pub fn resize_system(
     asset_manager.replace_screen_texture("albedo_texture", (width, height), TextureFormat::Bgra8UnormSrgb, false);
     asset_manager.replace_screen_texture("normal_texture", (width, height), TextureFormat::Bgra8UnormSrgb, false);
     asset_manager.replace_screen_texture("depth_texture", (width, height), TextureFormat::Depth32Float, false);
+
+    // Update GBuffer material with latest texture views.
+    let gbuffer_material = asset_manager.get_material_by_name("gbuffer_mat").unwrap();
+    let albedo_tex = asset_manager.get_texture_by_name("albedo_texture").unwrap();
+    let normal_tex = asset_manager.get_texture_by_name("normal_texture").unwrap();
+    let depth_tex = asset_manager.get_texture_by_name("depth_texture").unwrap();
+    let output_tex = asset_manager.get_texture_by_name("output_texture").unwrap();
+
+    let albedo_view = albedo_tex.view.clone();
+    let normal_view = normal_tex.view.clone();
+    let depth_view = depth_tex.view.clone();
+    let output_view = output_tex.view.clone();
+
+    let shadow_atlas_view = shadow_atlas.texture.view.clone();
+
+    gbuffer_material.set_texture("g_albedo", albedo_view.clone());
+    gbuffer_material.set_texture("g_normal", normal_view.clone());
+    gbuffer_material.set_texture("g_depth", depth_view.clone());
+    gbuffer_material.set_texture("shadow_map", shadow_atlas_view.clone());
+    gbuffer_material.set_uniform("shadow_data", global_component.directional_shadow_buffer.clone().unwrap());
+
+    // Update the post-processing material with the latest output texture view.
+    let post_processing_material = asset_manager.get_material_by_name("invert_mat").unwrap();
+    post_processing_material.set_texture("u_texture", output_view.clone());
 }
 
 /// Updates global state, camera, and global uniform buffer.
@@ -316,6 +342,7 @@ pub fn update_system(
 pub fn light_update_system(
     mut global_component: UniqueViewMut<GlobalComponent>,
     mut lights: ViewMut<LightComponent>,
+    camera: UniqueView<CameraComponent>,
 ) {
     let mut light_data: Vec<Light> = Vec::new();
     (&mut lights).iter().for_each(|light| {
@@ -330,201 +357,20 @@ pub fn light_update_system(
     }
 
     global_component.point_light_storage.update_buffer();
-}
 
-/// Main render system: performs multiple passes (depth-enabled, GBuffer composite, post-processing).
-pub fn render_system(
-    mut graphics: RenderGraphicsViewMut,
-    asset_manager: UniqueView<AssetManager>,
-    mesh_comps: View<MeshComponent>,
-    mat_comps: View<MaterialComponent>,
-    transform_comps: View<TransformComponent>,
-    shadow_cast_component: View<ShadowCastComponent>,
-) {
-    // Get the shadow atlas texture view.
-    let shadow_atlas_view = graphics.shadow_atlas.texture.view.clone();
-    // Get the shadow shader and material.
-    let shadow_shader = asset_manager.get_shader_by_name("shadow").unwrap();
-    let shadow_material = asset_manager.get_material_by_name("shadow_mat").unwrap();
-
-
-    // Retrieve textures and material pipelines.
-    let albedo_tex = asset_manager.get_texture_by_name("albedo_texture").unwrap();
-    let normal_tex = asset_manager.get_texture_by_name("normal_texture").unwrap();
-    let depth_tex = asset_manager.get_texture_by_name("depth_texture").unwrap();
-    let output_tex = asset_manager.get_texture_by_name("output_texture").unwrap();
-
-    let albedo_view = albedo_tex.view.clone();
-    let normal_view = normal_tex.view.clone();
-    let depth_view = depth_tex.view.clone();
-    let output_view = output_tex.view.clone();
-
-    let gbuffer_material = asset_manager.get_material_by_name("gbuffer_mat").unwrap();
-    let gbuffer_pipeline = gbuffer_material.get_pipeline();
-    // Add the shadow atlas view and sampler to the material
-    let global_component = &mut graphics.global_component;
-    // Update GBuffer material with latest texture views.
-    gbuffer_material.set_texture("g_albedo", albedo_view.clone());
-    gbuffer_material.set_texture("g_normal", normal_view.clone());
-    gbuffer_material.set_texture("g_depth", depth_view.clone());
-    gbuffer_material.set_texture("shadow_map", shadow_atlas_view.clone());
-    gbuffer_material.set_uniform("shadow_data", global_component.directional_shadow_buffer.clone().unwrap());
-
-    let post_processing_material = asset_manager.get_material_by_name("invert_mat").unwrap();
-    let post_processing_pipeline = post_processing_material.get_pipeline();
-    post_processing_material.set_texture("u_texture", output_view.clone());
-
-    // ---- Depth-Enabled Render Pass (GBuffer population) ----
-    {
-        let mut render_pass = graphics.encoder.as_mut().unwrap().begin_render_pass(&RenderPassDescriptor {
-            label: Some("Depth Render Pass"),
-            color_attachments: &[
-                Some(generate_color_attachment(&albedo_view)),
-                Some(generate_color_attachment(&normal_view)),
-            ],
-            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                view: &depth_view,
-                depth_ops: Some(Operations {
-                    load: LoadOp::Clear(1.0),
-                    store: StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-
-        // Bind global resources (group 0)
-        render_pass.set_bind_group(0, &*graphics.global_component.global_bind_group, &[]);
-
-        // Render all mesh entities that require depth writing.
-        (&mesh_comps, &mat_comps, &transform_comps).iter().for_each(|(mesh_comp, mat_comp, transform_comp)| {
-            if !mat_comp.material.get_depth() {
-                return;
-            }
-
-            render_pass.set_pipeline(&mat_comp.material.get_pipeline());
-            mat_comp.material.bind(&mut render_pass);
-
-            render_pass.set_push_constants(
-                wgpu::ShaderStages::VERTEX_FRAGMENT,
-                0,
-                bytemuck::cast_slice(&[transform_comp.transform]),
-            );
-
-            mesh_comp.mesh.draw(&mut render_pass);
-        });
-    }
-
-
-    // Assume our directional light's 'rotation' encodes its direction,
-    // but the shader uses the negative of that value as the light's direction.
-    let light = &mut graphics.global_component.directional_light.unwrap();
-
-    let camera = &graphics.camera_component.camera;
+    // Calculate the directional light view projection matrix.
+    let light = &mut global_component.directional_light.unwrap();
+    let camera = &camera.camera;
     let camera_pos = camera.position();
-
-    // Compute a normalized light direction (make sure light.rotation is a proper direction).
-    let light_dir = -light.rotation.normalize(); // Negate if the shader uses -direction
-
-    // Choose a scene center (this might be a fixed point or the center of your scene)
-    let mut scene_center = camera_pos;
-    // Zero out the y component
-    scene_center.y = 0.0;
-
-    // Pick a distance such that the orthographic bounds cover your scene.
+    let light_dir = -light.rotation.normalize();
+    let scene_center = camera_pos;
     let light_distance = -50.0;
-
-    // Compute the light's position.
     let light_pos = scene_center - light_dir * light_distance;
-
-    // Now compute a stable light view matrix.
-    let light_view = glam::Mat4::look_at_rh(
-        light_pos,       // Eye position: fixed relative to scene center.
-        scene_center,    // Look at the center of the scene.
-        glam::Vec3::Y,   // Up vector.
-    );
-
+    let light_view = glam::Mat4::look_at_rh(light_pos, scene_center, glam::Vec3::Y);
     let proj = glam::Mat4::orthographic_rh(-30.0, 30.0, -30.0, 30.0, 0.1, 100.0);
-    let light_view_proj = [proj * light_view];
-
-
-    let light_push_const = bytemuck::cast_slice(&light_view_proj);
-    if let Some(mut shadow_data) = graphics.global_component.directional_shadow_data {
-        shadow_data.light_view_proj = light_view_proj[0];
-        graphics.global_component.directional_shadow_buffer.as_ref().unwrap().update(&shadow_data);
-    }
-
-    // ---- Shadow Pass ----
-    {
-        let view = graphics.shadow_atlas.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut render_pass = graphics.encoder.as_mut().unwrap().begin_render_pass(&RenderPassDescriptor {
-            label: Some("Shadow Pass"),
-            color_attachments: &[],
-            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                view: &view,
-                depth_ops: Some(Operations {
-                    load: LoadOp::Clear(1.0),
-                    store: StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-
-        render_pass.set_pipeline(&shadow_material.get_pipeline());
-        render_pass.set_bind_group(0, &*graphics.global_component.global_bind_group, &[]);
-
-        // Set the viewport
-        let shadow_map_data = graphics.global_component.directional_light_shadow_map.as_ref().unwrap().read().unwrap();
-        let rect = shadow_map_data.rect;
-
-        render_pass.set_viewport(rect.x as f32, rect.y as f32, rect.width as f32, rect.height as f32, 0.0, 1.0);
-        render_pass.set_push_constants(wgpu::ShaderStages::VERTEX_FRAGMENT, size_of::<glam::Mat4>() as u32, &light_push_const);
-
-
-        (&mesh_comps, &transform_comps, &shadow_cast_component).iter().for_each(|(mesh_comp, transform_comp, shadow_caster)| {
-            if shadow_caster.shadow_cast {
-                let transform = [transform_comp.transform.matrix];
-                let transform_push_const = bytemuck::cast_slice(&transform);
-                render_pass.set_push_constants(wgpu::ShaderStages::VERTEX_FRAGMENT, 0, &transform_push_const);
-                mesh_comp.mesh.draw(&mut render_pass);
-            }
-        });
-    }
-
-    // ---- GBuffer Composite Pass ----
-    {
-        let mut render_pass = graphics.encoder.as_mut().unwrap().begin_render_pass(&RenderPassDescriptor {
-            label: Some("GBuffer Pass"),
-            color_attachments: &[Some(generate_color_attachment(&output_view))],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-
-        render_pass.set_pipeline(&gbuffer_pipeline);
-        render_pass.set_bind_group(0, &*graphics.global_component.global_bind_group, &[]);
-        gbuffer_material.bind(&mut render_pass);
-        render_pass.draw(0..3, 0..1);
-    }
-
-    // ---- Post-Processing Pass ----
-    {
-        let mut render_pass = graphics.encoder.as_mut().unwrap().begin_render_pass(&RenderPassDescriptor {
-            label: Some("Post Processing Pass"),
-            color_attachments: &[Some(generate_color_attachment(&graphics.view))],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-
-        render_pass.set_pipeline(&post_processing_pipeline);
-        render_pass.set_bind_group(0, &*graphics.global_component.global_bind_group, &[]);
-        post_processing_material.bind(&mut render_pass);
-        render_pass.draw(0..3, 0..1);
-    }
+    let light_view_proj = proj * light_view;
+    global_component.directional_light_view_proj = light_view_proj;
+    global_component.directional_light_buffer.as_ref().unwrap().update(light);
 }
 
 /// Helper function to create a RenderPassColorAttachment with a clear color.
@@ -537,4 +383,204 @@ fn generate_color_attachment(view: &wgpu::TextureView) -> RenderPassColorAttachm
             store: StoreOp::Store,
         },
     }
+}
+
+/// The main render graph system integrated into the ECS. This system can be registered with your ECS world.
+pub fn render_graph_system(
+    mut graphics: RenderGraphicsViewMut,
+    asset_manager: UniqueView<AssetManager>,
+    mesh_comps: View<MeshComponent>,
+    mat_comps: View<MaterialComponent>,
+    transform_comps: View<TransformComponent>,
+    shadow_cast_component: View<ShadowCastComponent>,
+) {
+    // For demonstration, obtain our output and shadow atlas texture views from the asset manager.
+    let shadow_atlas_view = graphics.shadow_atlas.texture.view.clone();
+
+    // Prepare the render graph context.
+    let mut context = RenderGraphContext {
+        encoder: &mut graphics.encoder,
+        asset_manager: &*asset_manager,
+        global_component: &*graphics.global_component,
+        camera_component: &*graphics.camera_component,
+        output_view: graphics.view.clone(),
+        shadow_atlas_view,
+    };
+
+    // Build the render graph.
+    let mut render_graph = RenderGraph::new();
+
+    // --- Depth Pass Node ---
+    render_graph.add_node(RenderGraphNode {
+        name: "depth_pass".into(),
+        dependencies: vec![],
+        execute: Box::new(|ctx: &mut RenderGraphContext| {
+            // Retrieve necessary resources.
+            let albedo_tex = ctx.asset_manager.get_texture_by_name("albedo_texture").unwrap();
+            let normal_tex = ctx.asset_manager.get_texture_by_name("normal_texture").unwrap();
+            let depth_tex = ctx.asset_manager.get_texture_by_name("depth_texture").unwrap();
+            let albedo_view = albedo_tex.view.clone();
+            let normal_view = normal_tex.view.clone();
+            let depth_view = depth_tex.view.clone();
+
+            // Begin the depth-enabled render pass.
+            if let Some(encoder) = ctx.encoder {
+                let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                    label: Some("Depth Pass"),
+                    color_attachments: &[
+                        Some(generate_color_attachment(&albedo_view)),
+                        Some(generate_color_attachment(&normal_view)),
+                    ],
+                    depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                        view: &depth_view,
+                        depth_ops: Some(Operations {
+                            load: LoadOp::Clear(1.0),
+                            store: StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
+
+                // Iterate over mesh entities and issue draw calls.
+                (&mesh_comps, &mat_comps, &transform_comps).iter().for_each(|(mesh_comp, mat_comp, transform_comp)| {
+                    if !mat_comp.material.get_depth() {
+                        return;
+                    }
+                    pass.set_pipeline(&mat_comp.material.get_pipeline());
+                    mat_comp.material.bind(&mut pass);
+                    pass.set_push_constants(
+                        wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        0,
+                        bytemuck::cast_slice(&[transform_comp.transform]),
+                    );
+                    mesh_comp.mesh.draw(&mut pass);
+                });
+            }
+        }),
+    });
+
+    // --- Shadow Pass Node ---
+    render_graph.add_node(RenderGraphNode {
+        name: "shadow_pass".into(),
+        dependencies: vec!["depth_pass".into()],
+        execute: Box::new(|ctx: &mut RenderGraphContext| {
+            // Use asset manager to get the shadow shader and material.
+            let shadow_material = ctx.asset_manager.get_material_by_name("shadow_mat").unwrap();
+            // Create a view for the shadow atlas.
+            let shadow_view = ctx.shadow_atlas_view.clone();
+
+            if let Some(encoder) = ctx.encoder {
+                let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                    label: Some("Shadow Pass"),
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                        view: &shadow_view,
+                        depth_ops: Some(Operations {
+                            load: LoadOp::Clear(1.0),
+                            store: StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                // Set the pipeline and bind group.
+                pass.set_pipeline(&shadow_material.get_pipeline());
+                pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
+                // Set the viewport.
+                let shadow_map_data = ctx.global_component.directional_light_shadow_map.as_ref().unwrap().read().unwrap();
+                let rect = shadow_map_data.rect;
+                pass.set_viewport(rect.x as f32, rect.y as f32, rect.width as f32, rect.height as f32, 0.0, 1.0);
+                // Set the light view-projection matrix as a push constant.
+                pass.set_push_constants(wgpu::ShaderStages::VERTEX_FRAGMENT, size_of::<glam::Mat4>() as u32, &bytemuck::cast_slice(&[ctx.global_component.directional_light_view_proj]));
+                // Iterate over mesh entities and issue draw calls.
+                (&mesh_comps, &transform_comps, &shadow_cast_component).iter().for_each(|(mesh_comp, transform_comp, shadow_caster)| {
+                    if shadow_caster.shadow_cast {
+                        let transform = [transform_comp.transform.matrix];
+                        let transform_push_const = bytemuck::cast_slice(&transform);
+                        pass.set_push_constants(wgpu::ShaderStages::VERTEX_FRAGMENT, 0, &transform_push_const);
+                        mesh_comp.mesh.draw(&mut pass);
+                    }
+                });
+            }
+        }),
+    });
+
+    // --- GBuffer Composite Pass Node ---
+    render_graph.add_node(RenderGraphNode {
+        name: "gbuffer_pass".into(),
+        dependencies: vec!["shadow_pass".into()],
+        execute: Box::new(|ctx: &mut RenderGraphContext| {
+            let output = ctx.asset_manager.get_texture_by_name("output_texture").unwrap();
+
+
+            let gbuffer_material = ctx.asset_manager.get_material_by_name("gbuffer_mat").unwrap();
+            let pipeline = gbuffer_material.get_pipeline();
+            // Get the shadow map view so we can bind it to the material.
+            let shadow_atlas_view = ctx.shadow_atlas_view.clone();
+            // Update the GBuffer material with the latest texture views.
+            gbuffer_material.set_texture("shadow_map", shadow_atlas_view);
+            // Update the shadow data uniform buffer.
+            if let Some(mut shadow_data) = ctx.global_component.directional_shadow_data {
+                shadow_data.light_view_proj = ctx.global_component.directional_light_view_proj;
+                ctx.global_component.directional_shadow_buffer.as_ref().unwrap().update(&shadow_data);
+            }
+            // Bind the shadow data uniform buffer to the material.
+            gbuffer_material.set_uniform("shadow_data", ctx.global_component.directional_shadow_buffer.clone().unwrap());
+
+            if let Some(encoder) = ctx.encoder {
+                let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                    label: Some("GBuffer Pass"),
+                    color_attachments: &[Some(generate_color_attachment(&output.view))],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                pass.set_pipeline(&pipeline);
+                pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
+                // Bind the gbuffer material resources and draw a full-screen triangle.
+                gbuffer_material.bind(&mut pass);
+                pass.draw(0..3, 0..1);
+            }
+        }),
+    });
+
+    // --- Post-Processing Pass Node ---
+    render_graph.add_node(RenderGraphNode {
+        name: "post_process".into(),
+        dependencies: vec!["gbuffer_pass".into()],
+        execute: Box::new(|ctx: &mut RenderGraphContext| {
+            let post_material = ctx.asset_manager.get_material_by_name("invert_mat").unwrap();
+            // Bind the intermediate render target as the input texture.
+            let texture = ctx.asset_manager.get_texture_by_name("output_texture").unwrap();
+            post_material.set_texture("u_texture", texture.view.clone());
+            let pipeline = post_material.get_pipeline();
+            // Assume we have an intermediate render target that holds our post-process input.
+            let final_view = ctx.output_view.clone();
+            if let Some(encoder) = ctx.encoder {
+                let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                    label: Some("Post Processing Pass"),
+                    color_attachments: &[Some(generate_color_attachment(&final_view))],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                pass.set_pipeline(&pipeline);
+                pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
+                post_material.bind(&mut pass);
+                pass.draw(0..3, 0..1);
+            }
+        }),
+    });
+
+    // Build the dependency graph from the added nodes.
+    render_graph.build_dependency_graph();
+
+    // Execute the render graph.
+    render_graph.execute(&mut context);
 }

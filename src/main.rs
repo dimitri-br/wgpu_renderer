@@ -17,11 +17,11 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{CursorGrabMode, Window};
 use crate::renderer::asset_manager::AssetManager;
 use renderer::ecs::components::{MaterialComponent, MeshComponent, TransformComponent};
-use renderer::ecs::systems::{add_entities, handle_keyboard_input, handle_mouse_input, render_system, resize_system, update_system};
+use renderer::ecs::systems::{add_entities, handle_keyboard_input, handle_mouse_input, resize_system, update_system};
 use renderer::ecs::global_component::GlobalComponent;
 use crate::renderer::auto_mipmapper::AutoMipmapper;
 use crate::renderer::ecs::camera_component::CameraComponent;
-use crate::renderer::ecs::systems::light_update_system;
+use crate::renderer::ecs::systems::{light_update_system, render_graph_system};
 use crate::renderer::shadow_atlas::ShadowAtlas;
 use crate::renderer::types::fps_camera::FpsCamera;
 use crate::renderer::types::global::Globals;
@@ -115,7 +115,7 @@ fn main() {
                         }
                     }
                     WindowEvent::RedrawRequested => {
-                        world.run(render_system);
+                        world.run(render_graph_system);
                     }
                     _ => {}
                 },

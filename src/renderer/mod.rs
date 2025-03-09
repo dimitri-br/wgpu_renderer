@@ -6,6 +6,7 @@ pub mod shader_reflect;
 pub mod ecs;
 pub mod auto_mipmapper;
 pub mod shadow_atlas;
+mod render_graph;
 
 use std::sync::Arc;
 use log::{error, info};
