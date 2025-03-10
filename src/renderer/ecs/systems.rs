@@ -28,6 +28,7 @@ use crate::renderer::types::light::Light;
 use crate::renderer::types::light_type::LightType;
 use crate::renderer::types::material::Material;
 use crate::renderer::types::sampler::SamplerParameters;
+use crate::renderer::types::shadow_data::ShadowData;
 use crate::renderer::types::transform::Transform;
 use crate::renderer::types::uniform::{Uniform, UniformBuffer};
 
@@ -151,11 +152,13 @@ where
 pub fn add_entities(
     mut entities: EntitiesViewMut,
     asset_manager: UniqueView<AssetManager>,
+    mut shadow_atlas: UniqueViewMut<ShadowAtlas>,
     mut meshes: ViewMut<MeshComponent>,
     mut materials: ViewMut<MaterialComponent>,
     mut transforms: ViewMut<TransformComponent>,
     mut shadow_cast_component: ViewMut<ShadowCastComponent>,
     mut lights: ViewMut<LightComponent>,
+    mut shadow_map_components: ViewMut<ShadowMapComponent>,
 ) {
     // Spawn one box entity. Make it really long and wide, but thin.
     entities.add_entity(
@@ -239,10 +242,38 @@ pub fn add_entities(
         }),
     );
 
+    let directional_shadow_map = shadow_atlas.allocate_tile(2048, 2048).unwrap();
+    let directional_shadow_data = ShadowData::new(
+        glam::Mat4::IDENTITY,
+        directional_shadow_map.read().unwrap().uv_offset,
+        directional_shadow_map.read().unwrap().uv_scale,
+        0.001,
+    );
+
+    let light = LightComponent::new(Light::new(
+        vec3(0.0, 5.0, 0.0),
+        vec3(0.5, -1.0, 0.0),
+        vec3(1.0, 1.0, 1.0),
+        1.0,
+        100.0,
+        LightType::Directional,
+    ), LightType::Directional);
+
+
+    let transform = TransformComponent { transform: Transform::new() };
+
+    let smc = ShadowMapComponent::new(directional_shadow_data, directional_shadow_map);
+
+    // Spawn a directional light.
+    entities.add_entity(
+        (&mut lights, &mut transforms, &mut shadow_map_components),
+        (light, transform, smc),
+    );
+
     // Spawn a few light entities.
     entities.bulk_add_entity(
-        (&mut lights, &mut transforms),
-        (0..2).map(|_| {
+        (&mut lights, &mut transforms, &mut shadow_map_components),
+        (0..3).map(|_| {
             let mut light_transform = Transform::new();
             light_transform.translate(vec3(
                 random::<f32>() * 25.0 - 12.5,
@@ -258,11 +289,25 @@ pub fn add_entities(
             let intensity = random::<f32>() * 10.0 + 10.0;
             let range = 10.0;
             let rotation = vec3(0.0, 0.0, 0.0);
-            let light = Light::new(light_transform.translation(), rotation, color, intensity, range);
+            let light = Light::new(light_transform.translation(), rotation, color, intensity, range, LightType::Point);
             let light_component = LightComponent::new(light, LightType::Point);
             let transform_component = TransformComponent { transform: light_transform };
 
-            (light_component, transform_component)
+            // These are point lights, so we need to allocate per axis
+            let shadow_map_resolution = 1024; // 1024x1024 spread over 6 faces
+            // For each face, we need to allocate a tile
+            let shadow_map = shadow_atlas.allocate_tile(shadow_map_resolution, shadow_map_resolution).unwrap();
+
+            let shadow_data = ShadowData::new(
+                glam::Mat4::IDENTITY,
+                shadow_map.read().unwrap().uv_offset,
+                shadow_map.read().unwrap().uv_scale,
+                0.001,
+            );
+
+            let shadow_map_component = ShadowMapComponent::new(shadow_data, shadow_map);
+
+            (light_component, transform_component, shadow_map_component)
         }),
     );
 }
@@ -314,7 +359,6 @@ pub fn resize_system(
     gbuffer_material.set_texture("g_normal", normal_view.clone());
     gbuffer_material.set_texture("g_depth", depth_view.clone());
     gbuffer_material.set_texture("shadow_map", shadow_atlas_view.clone());
-    gbuffer_material.set_uniform("shadow_data", global_component.directional_shadow_buffer.clone().unwrap());
 
     // Update the post-processing material with the latest output texture view.
     let post_processing_material = asset_manager.get_material_by_name("invert_mat").unwrap();
@@ -342,35 +386,55 @@ pub fn update_system(
 pub fn light_update_system(
     mut global_component: UniqueViewMut<GlobalComponent>,
     mut lights: ViewMut<LightComponent>,
+    mut shadow_map_components: ViewMut<ShadowMapComponent>,
     camera: UniqueView<CameraComponent>,
 ) {
     let mut light_data: Vec<Light> = Vec::new();
-    (&mut lights).iter().for_each(|light| {
-        light_data.push(light.clone());
-    });
-    global_component.point_light_storage.set_lights(light_data);
+    let mut shadow_data: Vec<ShadowData> = Vec::new();
+    // Iterate over the lights + shadow data and update
+    (&mut lights, &mut shadow_map_components).iter().for_each(|(light, smc)| {
+        let shadow_map_data = &mut smc.shadow_data;
 
-    if global_component.point_light_storage.needs_rebuild {
+        match light.light_type{
+            LightType::Directional => {
+                let light = &mut light.light;
+                let camera = &camera.camera;
+                let camera_pos = camera.position();
+                // Loop the light around the scene.
+                let light_dir = -light.rotation.normalize();
+                // Rotate the light a random amount.
+                let scene_center = camera_pos;
+                let light_distance = -50.0;
+                let light_pos = scene_center - light_dir * light_distance;
+                let light_view = glam::Mat4::look_at_rh(light_pos, scene_center, glam::Vec3::Y);
+                let proj = glam::Mat4::orthographic_rh(-30.0, 30.0, -30.0, 30.0, 0.1, 100.0);
+                let light_view_proj = proj * light_view;
+                shadow_map_data.light_view_proj = light_view_proj;
+                light.view_proj = light_view_proj;
+            },
+            _ => {}
+        };
+
+        light_data.push(light.clone());
+        shadow_data.push(shadow_map_data.clone());
+    });
+    global_component.light_storage.set_lights(light_data);
+    global_component.shadow_data_storage.set_all_shadow_data(shadow_data);
+
+    if global_component.light_storage.needs_rebuild {
         info!("Rebuilding light storage buffer");
         global_component.reconstruct_bind_group();
-        global_component.point_light_storage.needs_rebuild = false;
+        global_component.light_storage.needs_rebuild = false;
     }
 
-    global_component.point_light_storage.update_buffer();
+    if global_component.shadow_data_storage.needs_rebuild {
+        info!("Rebuilding shadow data storage");
+        global_component.reconstruct_bind_group();
+        global_component.shadow_data_storage.needs_rebuild = false;
+    }
 
-    // Calculate the directional light view projection matrix.
-    let light = &mut global_component.directional_light.unwrap();
-    let camera = &camera.camera;
-    let camera_pos = camera.position();
-    let light_dir = -light.rotation.normalize();
-    let scene_center = camera_pos;
-    let light_distance = -50.0;
-    let light_pos = scene_center - light_dir * light_distance;
-    let light_view = glam::Mat4::look_at_rh(light_pos, scene_center, glam::Vec3::Y);
-    let proj = glam::Mat4::orthographic_rh(-30.0, 30.0, -30.0, 30.0, 0.1, 100.0);
-    let light_view_proj = proj * light_view;
-    global_component.directional_light_view_proj = light_view_proj;
-    global_component.directional_light_buffer.as_ref().unwrap().update(light);
+    global_component.light_storage.update_buffer();
+    global_component.shadow_data_storage.update_buffer();
 }
 
 /// Helper function to create a RenderPassColorAttachment with a clear color.
@@ -393,6 +457,7 @@ pub fn render_graph_system(
     mat_comps: View<MaterialComponent>,
     transform_comps: View<TransformComponent>,
     shadow_cast_component: View<ShadowCastComponent>,
+    shadow_map_components: View<ShadowMapComponent>,
 ) {
     // For demonstration, obtain our output and shadow atlas texture views from the asset manager.
     let shadow_atlas_view = graphics.shadow_atlas.texture.view.clone();
@@ -491,22 +556,22 @@ pub fn render_graph_system(
 
                 // Set the pipeline and bind group.
                 pass.set_pipeline(&shadow_material.get_pipeline());
-                pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
                 // Set the viewport.
-                let shadow_map_data = ctx.global_component.directional_light_shadow_map.as_ref().unwrap().read().unwrap();
-                let rect = shadow_map_data.rect;
-                pass.set_viewport(rect.x as f32, rect.y as f32, rect.width as f32, rect.height as f32, 0.0, 1.0);
-                // Set the light view-projection matrix as a push constant.
-                pass.set_push_constants(wgpu::ShaderStages::VERTEX_FRAGMENT, size_of::<glam::Mat4>() as u32, &bytemuck::cast_slice(&[ctx.global_component.directional_light_view_proj]));
-                // Iterate over mesh entities and issue draw calls.
-                (&mesh_comps, &transform_comps, &shadow_cast_component).iter().for_each(|(mesh_comp, transform_comp, shadow_caster)| {
-                    if shadow_caster.shadow_cast {
-                        let transform = [transform_comp.transform.matrix];
-                        let transform_push_const = bytemuck::cast_slice(&transform);
-                        pass.set_push_constants(wgpu::ShaderStages::VERTEX_FRAGMENT, 0, &transform_push_const);
-                        mesh_comp.mesh.draw(&mut pass);
-                    }
-                });
+                (&shadow_map_components).iter().for_each(|smc| {
+                    pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
+                    let rect = smc.tile.read().unwrap().rect;
+                    pass.set_viewport(rect.x as f32, rect.y as f32, rect.width as f32, rect.height as f32, 0.0, 1.0);
+                    // Set the light view-projection matrix as a push constant.
+                    // Iterate over mesh entities and issue draw calls.
+                    (&mesh_comps, &transform_comps, &shadow_cast_component).iter().for_each(|(mesh_comp, transform_comp, shadow_caster)| {
+                        if shadow_caster.shadow_cast {
+                            let transform = [transform_comp.transform.matrix];
+                            let transform_push_const = bytemuck::cast_slice(&transform);
+                            pass.set_push_constants(wgpu::ShaderStages::VERTEX_FRAGMENT, 0, &transform_push_const);
+                            mesh_comp.mesh.draw(&mut pass);
+                        }
+                    });
+                })
             }
         }),
     });
@@ -525,13 +590,6 @@ pub fn render_graph_system(
             let shadow_atlas_view = ctx.shadow_atlas_view.clone();
             // Update the GBuffer material with the latest texture views.
             gbuffer_material.set_texture("shadow_map", shadow_atlas_view);
-            // Update the shadow data uniform buffer.
-            if let Some(mut shadow_data) = ctx.global_component.directional_shadow_data {
-                shadow_data.light_view_proj = ctx.global_component.directional_light_view_proj;
-                ctx.global_component.directional_shadow_buffer.as_ref().unwrap().update(&shadow_data);
-            }
-            // Bind the shadow data uniform buffer to the material.
-            gbuffer_material.set_uniform("shadow_data", ctx.global_component.directional_shadow_buffer.clone().unwrap());
 
             if let Some(encoder) = ctx.encoder {
                 let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {

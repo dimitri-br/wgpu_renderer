@@ -1,5 +1,5 @@
 use std::ops::Deref;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use crate::renderer::types::material::Material;
 use crate::renderer::types::gpu_mesh::GpuMesh;
 use crate::renderer::types::transform::Transform;
@@ -7,6 +7,7 @@ use shipyard::*;
 use crate::renderer::shadow_atlas::AtlasTile;
 use crate::renderer::types::light::Light;
 use crate::renderer::types::light_type::LightType;
+use crate::renderer::types::shadow_data::ShadowData;
 use crate::renderer::types::texture::Texture;
 
 #[derive(Component)]
@@ -88,17 +89,26 @@ impl Deref for TransformComponent {
 #[derive(Component)]
 pub struct LightComponent{
     pub(crate) light: Light,
-    pub(crate) light_type: LightType,
-    pub(crate) shadow_map: Option<Texture>,
+    pub(crate) shadow_map: Option<Arc<Texture>>,
 }
 
 impl LightComponent{
     pub fn new(light: Light, light_type: LightType) -> Self{
         Self{
             light,
-            light_type,
             shadow_map: None,
         }
+    }
+
+    pub fn with_shadow_map(light: Light, shadow_map: Arc<Texture>) -> Self{
+        Self{
+            light,
+            shadow_map: Some(shadow_map),
+        }
+    }
+
+    pub fn set_shadow_map(&mut self, shadow_map: Arc<Texture>){
+        self.shadow_map = Some(shadow_map);
     }
 }
 
@@ -118,27 +128,14 @@ impl Deref for LightComponent{
 
 #[derive(Component)]
 pub struct ShadowMapComponent {
-    pub tile: AtlasTile,
+    pub shadow_data: ShadowData,
+    pub tile: Arc<RwLock<AtlasTile>>,
     // plus additional data: light's projection matrix, etc.
 }
 
 impl ShadowMapComponent {
-    pub fn new(tile: AtlasTile) -> Self {
-        Self { tile }
-    }
-}
-
-impl From<AtlasTile> for ShadowMapComponent {
-    fn from(tile: AtlasTile) -> Self {
-        Self::new(tile)
-    }
-}
-
-impl Deref for ShadowMapComponent {
-    type Target = AtlasTile;
-
-    fn deref(&self) -> &Self::Target {
-        &self.tile
+    pub fn new(shadow_data: ShadowData, tile: Arc<RwLock<AtlasTile>>) -> Self {
+        Self { shadow_data, tile }
     }
 }
 

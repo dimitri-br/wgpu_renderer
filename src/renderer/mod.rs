@@ -7,6 +7,8 @@ pub mod ecs;
 pub mod auto_mipmapper;
 pub mod shadow_atlas;
 mod render_graph;
+mod shadow_data_storage;
+pub mod light_storage;
 
 use std::sync::Arc;
 use log::{error, info};

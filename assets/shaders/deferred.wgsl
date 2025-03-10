@@ -15,16 +15,18 @@ struct Light {
     rotation: vec3<f32>,  // Here, assumed to encode the light's direction (in radians).
     intensity: f32,
     color: vec3<f32>,
+    light_type: u32,  // 0 = directional, 1 = point, 2 = spot
+    view_proj: mat4x4<f32>,  // Precomputed shadow pass matrix.
 };
 
 @group(0) @binding(0)
 var<uniform> global_data: GlobalData;
 
 @group(0) @binding(1)
-var<uniform> directional_light: Light;
+var<storage, read> lights: array<Light>; // lights.
 
 @group(0) @binding(2)
-var<storage, read> lights: array<Light>; // Additional (point) lights.
+var<storage, read> shadow_data: array<ShadowData>;
 
 // -----------------------------------------------------------------------------
 // G-buffer Bindings (group 1)
@@ -51,12 +53,9 @@ struct ShadowData {
 };
 
 @group(1) @binding(4)
-var<uniform> shadow_data: ShadowData;
-
-@group(1) @binding(5)
 var shadow_map: texture_depth_2d;
 
-@group(1) @binding(6)
+@group(1) @binding(5)
 var shadow_sampler: sampler_comparison;
 
 // -----------------------------------------------------------------------------
@@ -79,6 +78,7 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     var out: VertexOutput;
     out.position = vec4<f32>(pos.x, -pos.y, 0.0, 1.0);
     out.uv = (pos + vec2<f32>(1.0, 1.0)) * 0.5;
+
     return out;
 }
 
@@ -115,71 +115,90 @@ fn deferred_fs(input: FragmentInput) -> @location(0) vec4<f32> {
     // 4) Base ambient lighting.
     var final_color = albedo * 0.05;
 
+    // First, loop through lights to see if we have a directional light.
+    // If we do, we'll use it for the main directional light.
+    let num_lights: u32 = arrayLength(&lights);
+    var found_directional: bool = false;
+    var directional_index: u32 = 0u;
+    for (var i: u32 = 0u; i < num_lights; i = i + 1u) {
+        let light = lights[i];
+        if (light.light_type == 0u) {
+            directional_index = i;
+            found_directional = true;
+            break;
+        }
+    }
+
     // 5) Directional light (no shadow yet).
-    let dir_vec = -directional_light.rotation;  // Light direction
-    let NdotL   = max(dot(normal, dir_vec), 0.0);
-    final_color += albedo * directional_light.color * NdotL * directional_light.intensity;
+    // Check if we have a directional light.
+    if (found_directional) {
+        var directional_light: Light = lights[directional_index];
+        var directional_shadow_data: ShadowData = shadow_data[directional_index];
 
-    // 6) PCF Shadow sampling.
-    // Transform world_pos into light clip space:
-    var shadow_coord = shadow_data.light_view_proj * vec4<f32>(world_pos.xyz, 1.0);
-    shadow_coord /= shadow_coord.w; // For perspective or if w != 1
+        let dir_vec = -directional_light.rotation;  // Light direction
+        let NdotL   = max(dot(normal, dir_vec), 0.0);
+        final_color += albedo * directional_light.color * NdotL * directional_light.intensity;
 
-    // Map [-1..1] to [0..1] in X and Y:
-    shadow_coord.x = shadow_coord.x * 0.5 + 0.5;
-    shadow_coord.y = shadow_coord.y * 0.5 + 0.5;
-    // Flip Y if needed for your texture space:
-    shadow_coord.y = 1.0 - shadow_coord.y;
+        // 6) PCF Shadow sampling.
+        // Transform world_pos into light clip space:
+        var shadow_coord = directional_shadow_data.light_view_proj * vec4<f32>(world_pos.xyz, 1.0);
+        shadow_coord /= shadow_coord.w; // For perspective or if w != 1
 
-    // Atlas offset/scale if used:
-    shadow_coord.x = shadow_coord.x * shadow_data.uv_scale.x + shadow_data.uv_offset.x;
-    shadow_coord.y = shadow_coord.y * shadow_data.uv_scale.y + shadow_data.uv_offset.y;
+        // Map [-1..1] to [0..1] in X and Y:
+        shadow_coord.x = shadow_coord.x * 0.5 + 0.5;
+        shadow_coord.y = shadow_coord.y * 0.5 + 0.5;
+        // Flip Y if needed for your texture space:
+        shadow_coord.y = 1.0 - shadow_coord.y;
 
-    // Subtract bias:
-    shadow_coord.z = shadow_coord.z - shadow_data.bias;
+        // Atlas offset/scale if used:
+        shadow_coord.x = shadow_coord.x * directional_shadow_data.uv_scale.x + directional_shadow_data.uv_offset.x;
+        shadow_coord.y = shadow_coord.y * directional_shadow_data.uv_scale.y + directional_shadow_data.uv_offset.y;
 
-    // ---- PCF 3x3 sample pattern ----
-    let offsets = array<vec2<f32>, 9>(
-        vec2<f32>(-1.0, -1.0),
-        vec2<f32>( 0.0, -1.0),
-        vec2<f32>( 1.0, -1.0),
-        vec2<f32>(-1.0,  0.0),
-        vec2<f32>( 0.0,  0.0),
-        vec2<f32>( 1.0,  0.0),
-        vec2<f32>(-1.0,  1.0),
-        vec2<f32>( 0.0,  1.0),
-        vec2<f32>( 1.0,  1.0),
-    );
-    let kernel_radius = 0.0001; // Tweak for softness
-    var pcf_sum = 0.0;
+        // Subtract bias:
+        shadow_coord.z = shadow_coord.z - directional_shadow_data.bias;
 
-    for (var i = 0u; i < 9u; i = i + 1u) {
-        let uv_offset = offsets[i] * kernel_radius;
-        pcf_sum += textureSampleCompare(
-            shadow_map,
-            shadow_sampler,
-            shadow_coord.xy + uv_offset,
-            shadow_coord.z
+        // ---- PCF 3x3 sample pattern ----
+        let offsets = array<vec2<f32>, 9>(
+            vec2<f32>(-1.0, -1.0),
+            vec2<f32>( 0.0, -1.0),
+            vec2<f32>( 1.0, -1.0),
+            vec2<f32>(-1.0,  0.0),
+            vec2<f32>( 0.0,  0.0),
+            vec2<f32>( 1.0,  0.0),
+            vec2<f32>(-1.0,  1.0),
+            vec2<f32>( 0.0,  1.0),
+            vec2<f32>( 1.0,  1.0),
         );
-    }
-    var shadow_factor = pcf_sum / 9.0;
+        let kernel_radius = 0.0001; // Tweak for softness
+        var pcf_sum = 0.0;
 
-    // If we're outside the uv range, don't shadow.
-    if (shadow_coord.x < 0.0 || shadow_coord.x > 1.0 ||
-        shadow_coord.y < 0.0 || shadow_coord.y > 1.0) {
-        shadow_factor = 1.0;
-    }
-    
-    // Optionally darken if the factor is below some threshold (your code):
-    if (shadow_factor < 0.5) {
-        final_color *= 0.5;
-    }
+        for (var i = 0u; i < 9u; i = i + 1u) {
+            let uv_offset = offsets[i] * kernel_radius;
+            pcf_sum += textureSampleCompare(
+                shadow_map,
+                shadow_sampler,
+                shadow_coord.xy + uv_offset,
+                shadow_coord.z
+            );
+        }
+        var shadow_factor = pcf_sum / 9.0;
 
-    // Apply final shadow factor.
-    final_color *= shadow_factor;
+        // If we're outside the uv range, don't shadow.
+        if (shadow_coord.x < 0.0 || shadow_coord.x > 1.0 ||
+            shadow_coord.y < 0.0 || shadow_coord.y > 1.0) {
+            shadow_factor = 1.0;
+        }
+
+        // Optionally darken if the factor is below some threshold (your code):
+        if (shadow_factor < 0.5) {
+            final_color *= 0.5;
+        }
+
+        // Apply final shadow factor.
+        final_color *= shadow_factor;
+    }
 
     // 7) Additional point lights (if any).
-    let num_lights: u32 = arrayLength(&lights);
     for (var i: u32 = 0u; i < num_lights; i = i + 1u) {
         let light = lights[i];
         let to_light = light.position - world_pos.xyz;
@@ -198,4 +217,53 @@ fn deferred_fs(input: FragmentInput) -> @location(0) vec4<f32> {
     }
 
     return vec4<f32>(final_color, 1.0);
+}
+
+/* Helper functions */
+
+fn lookAt(eye: vec3<f32>, center: vec3<f32>, up: vec3<f32>) -> mat4x4<f32> {
+    let f = normalize(center - eye);
+    let s = normalize(cross(f, up));
+    let u = cross(s, f);
+
+    return mat4x4<f32>(
+        vec4<f32>( s.x,  u.x, -f.x, 0.0),
+        vec4<f32>( s.y,  u.y, -f.y, 0.0),
+        vec4<f32>( s.z,  u.z, -f.z, 0.0),
+        vec4<f32>(-dot(s, eye), -dot(u, eye), dot(f, eye), 1.0)
+    );
+}
+
+fn perspective(fov_deg: f32, aspect: f32, near: f32, far: f32) -> mat4x4<f32> {
+    let fov_rad = radians(fov_deg);
+    let f = 1.0 / tan(fov_rad / 2.0);
+    return mat4x4<f32>(
+        vec4<f32>(f / aspect, 0.0, 0.0, 0.0),
+        vec4<f32>(0.0, f, 0.0, 0.0),
+        vec4<f32>(0.0, 0.0, (far + near) / (near - far), -1.0),
+        vec4<f32>(0.0, 0.0, (2.0 * far * near) / (near - far), 0.0)
+    );
+}
+
+fn computePointLightViewProj(lightPos: vec3<f32>, faceIndex: u32, range: f32) -> mat4x4<f32> {
+    // Define canonical directions and up vectors for cubemap faces.
+    let directions = array<vec3<f32>, 6>(
+        vec3<f32>( 1.0,  0.0,  0.0),
+        vec3<f32>(-1.0,  0.0,  0.0),
+        vec3<f32>( 0.0,  1.0,  0.0),
+        vec3<f32>( 0.0, -1.0,  0.0),
+        vec3<f32>( 0.0,  0.0,  1.0),
+        vec3<f32>( 0.0,  0.0, -1.0)
+    );
+    let ups = array<vec3<f32>, 6>(
+        vec3<f32>(0.0, -1.0,  0.0),
+        vec3<f32>(0.0, -1.0,  0.0),
+        vec3<f32>(0.0,  0.0,  1.0),
+        vec3<f32>(0.0,  0.0, -1.0),
+        vec3<f32>(0.0, -1.0,  0.0),
+        vec3<f32>(0.0, -1.0,  0.0)
+    );
+    let view = lookAt(lightPos, lightPos + directions[faceIndex], ups[faceIndex]);
+    let proj = perspective(90.0, 1.0, 0.1, range);
+    return proj * view;
 }

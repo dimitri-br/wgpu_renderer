@@ -28,6 +28,34 @@ pub struct AtlasTile {
     pub uv_scale: glam::Vec2,
 }
 
+impl AtlasTile {
+    /// Useful suballocation to further split a tile into smaller tiles.
+    /// This is useful for cascaded shadow maps, for example. Or point light shadow maps.
+    /// It returns a vector of tiles that are suballocated from the current tile.
+    ///
+    /// * num_tiles_x - The number of tiles to split the current tile into horizontally.
+    /// * num_tiles_y - The number of tiles to split the current tile into vertically.
+    pub fn suballocate(&self, num_tiles_x: u32, num_tiles_y: u32) -> Vec<AtlasTile> {
+        let mut tiles = Vec::new();
+        let tile_width = self.rect.width / num_tiles_x;
+        let tile_height = self.rect.height / num_tiles_y;
+        for y in 0..num_tiles_y {
+            for x in 0..num_tiles_x {
+                let tile_rect = Rect {
+                    x: self.rect.x + x * tile_width,
+                    y: self.rect.y + y * tile_height,
+                    width: tile_width,
+                    height: tile_height,
+                };
+                let uv_offset = glam::Vec2::new(tile_rect.x as f32 / self.rect.width as f32, tile_rect.y as f32 / self.rect.height as f32);
+                let uv_scale = glam::Vec2::new(tile_rect.width as f32 / self.rect.width as f32, tile_rect.height as f32 / self.rect.height as f32);
+                tiles.push(AtlasTile { rect: tile_rect, uv_offset, uv_scale });
+            }
+        }
+        tiles
+    }
+}
+
 /// A simple shadow atlas that supports dynamic tile allocation.
 #[derive(Unique)]
 pub struct ShadowAtlas {
