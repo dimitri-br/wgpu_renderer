@@ -91,12 +91,23 @@ fn compute_shadow_coord(sd: ShadowData, world_pos: vec3<f32>, remapZ: bool) -> v
     coord.y = 1.0 - coord.y;
     // Apply atlas UV scale and offset.
     coord = vec4(coord.xy * sd.uv_scale + sd.uv_offset, coord.z, coord.w);
+
     // Optionally remap Z from [-1,1] to [0,1].
     if (remapZ) {
         coord.z = coord.z * 0.5 + 0.5;
     }
     // Apply bias.
     coord.z -= sd.bias;
+
+    // Check if the coord falls outside the atlas.
+    // We can do this by checking against the min/max that the
+    // UV scale and offset would produce.
+    let min_uv = sd.uv_offset;
+    let max_uv = sd.uv_offset + sd.uv_scale;
+    let outside = any(coord.xy < min_uv) || any(coord.xy > max_uv);
+    // If outside, set Z to -1 to indicate that the pixel is in shadow.
+    coord.z = select(coord.z, -1.0, outside);
+
     return coord;
 }
 
@@ -135,6 +146,7 @@ fn deferred_fs(input: VertexOutput) -> @location(0) vec4<f32> {
                 // For directional lights, assume the shadow map is rendered with a projection that already maps Z to [0,1].
                 let sd = shadow_data[light.shadow_offset];
                 var shadow_coord = compute_shadow_coord(sd, world_pos.xyz, false);
+
                 // 3x3 PCF.
                 let offsets = array<vec2<f32>, 9>(
                     vec2<f32>(-1.0, -1.0), vec2<f32>( 0.0, -1.0), vec2<f32>( 1.0, -1.0),

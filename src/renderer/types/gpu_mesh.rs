@@ -2,6 +2,7 @@ use crate::renderer::types::mesh::Mesh;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{Buffer, BufferUsages, Device};
+use crate::renderer::types::vertex::Vertex;
 
 /// A single submesh in GPU memory
 pub struct GpuSubMesh {
@@ -37,9 +38,12 @@ impl GpuMesh {
                 } else {
                     subm.texcoords[i]
                 };
-                vertices.extend_from_slice(&pos);
-                vertices.extend_from_slice(&normal);
-                vertices.extend_from_slice(&uv);
+                let vertex = Vertex::new(
+                    pos.into(),
+                    normal.into(),
+                    uv.into(),
+                );
+                vertices.push(vertex);
             }
 
             let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

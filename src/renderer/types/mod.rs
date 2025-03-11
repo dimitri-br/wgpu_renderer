@@ -12,3 +12,4 @@ pub mod uniform;
 pub mod light;
 pub mod light_type;
 pub mod shadow_data;
+pub mod vertex;
