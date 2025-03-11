@@ -45,7 +45,6 @@ pub struct AssetManager {
     pub shaders: HashMap<Uuid, Arc<Shader>>,
     pub materials: HashMap<Uuid, Arc<Material>>,
     pub textures: HashMap<Uuid, Arc<Texture>>,
-    pub uniform_buffers: RwLock<Vec<Arc<UniformBuffer>>>,
 }
 
 impl AssetManager {
@@ -66,7 +65,6 @@ impl AssetManager {
             shaders: HashMap::new(),
             materials: HashMap::new(),
             textures: HashMap::new(),
-            uniform_buffers: RwLock::new(Vec::new()),
         }
     }
 
@@ -247,21 +245,5 @@ impl AssetManager {
     pub fn get_material_by_name<S: AsRef<str>>(&self, name: S) -> Option<Arc<Material>> {
         let key = uuid_from_string(name.as_ref());
         self.materials.get(&key).cloned()
-    }
-
-    // ---------------------
-    // Uniform Buffer Management
-    // ---------------------
-
-    /// Creates a new uniform buffer of the given size.
-    ///
-    /// The new buffer is stored in the asset manager's uniform buffer vector.
-    /// Logs the creation for debugging purposes.
-    pub fn create_uniform_buffer(&self, size: u64) -> Arc<UniformBuffer> {
-        info!("Creating uniform buffer of size {} bytes.", size);
-        let uniform_buffer = UniformBuffer::new(&self.device, &self.queue, size);
-        let arc_ub = Arc::new(uniform_buffer);
-        self.uniform_buffers.write().unwrap().push(arc_ub.clone());
-        arc_ub
     }
 }

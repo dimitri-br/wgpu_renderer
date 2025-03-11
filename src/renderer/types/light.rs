@@ -1,3 +1,4 @@
+use crate::renderer::gpu_storage::{GpuStorable, GpuStorage};
 use crate::renderer::types::shadow_data::ShadowData;
 use crate::renderer::types::light_type::LightType;
 use crate::renderer::types::uniform::Uniform;
@@ -46,5 +47,13 @@ impl Light{
 impl Uniform for Light{
     fn update_uniforms(&self, buffer: &wgpu::Buffer, queue: &wgpu::Queue){
         queue.write_buffer(buffer, 0, bytemuck::cast_slice(&[*self]));
+    }
+}
+
+impl GpuStorable for Light{
+    type Storage = Light;
+
+    fn as_storage(&self) -> Self::Storage {
+        *self
     }
 }

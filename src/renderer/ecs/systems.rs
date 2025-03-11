@@ -438,8 +438,9 @@ pub fn light_update_system(
                 let proj = glam::Mat4::orthographic_rh(-30.0, 30.0, -30.0, 30.0, 0.1, 100.0);
                 let light_view_proj = proj * light_view;
                 for i in 0..light.shadow_data_count{
-                    if let Some(shadow_map_data) = global_component.shadow_data_storage.get_shadow_data_mut(light.shadow_data_offset as usize + i as usize) {
+                    if let Some(mut shadow_map_data) = global_component.shadow_data_storage.get_shadow_data(light.shadow_data_offset as usize + i as usize) {
                         shadow_map_data.shadow_data.light_view_proj = light_view_proj;
+                        global_component.shadow_data_storage.set_shadow_data(light.shadow_data_offset as usize + i as usize, shadow_map_data).unwrap();
                     }
                 }
 
@@ -468,9 +469,10 @@ pub fn light_update_system(
                 ];
 
                 for i in 0..light.shadow_data_count {
-                    if let Some(shadow_map_data) = global_component.shadow_data_storage.get_shadow_data_mut(light.shadow_data_offset as usize + i as usize) {
+                    if let Some(mut shadow_map_data) = global_component.shadow_data_storage.get_shadow_data(light.shadow_data_offset as usize + i as usize) {
                         let view_proj = proj * views[i as usize];
                         shadow_map_data.shadow_data.light_view_proj = view_proj;
+                        global_component.shadow_data_storage.set_shadow_data(light.shadow_data_offset as usize + i as usize, shadow_map_data).unwrap();
                     }
                 }
 
@@ -481,22 +483,11 @@ pub fn light_update_system(
 
         light_data.push(light.clone());
     });
-    global_component.light_storage.set_lights(light_data);
+    global_component.light_storage.set_all_lights(light_data);
 
-    if global_component.light_storage.needs_rebuild {
-        info!("Rebuilding light storage buffer");
-        global_component.reconstruct_bind_group();
-        global_component.light_storage.needs_rebuild = false;
-    }
 
-    if global_component.shadow_data_storage.needs_rebuild {
-        info!("Rebuilding shadow data storage");
-        global_component.reconstruct_bind_group();
-        global_component.shadow_data_storage.needs_rebuild = false;
-    }
-
-    global_component.light_storage.update_buffer();
-    global_component.shadow_data_storage.update_buffer();
+    global_component.light_storage.update();
+    global_component.shadow_data_storage.update();
 }
 
 /// Helper function to create a RenderPassColorAttachment with a clear color.

@@ -4,6 +4,7 @@ use crate::renderer::types::material::Material;
 use crate::renderer::types::gpu_mesh::GpuMesh;
 use crate::renderer::types::transform::Transform;
 use shipyard::*;
+use crate::renderer::gpu_storage::GpuStorable;
 use crate::renderer::shadow_atlas::AtlasTile;
 use crate::renderer::types::light::Light;
 use crate::renderer::types::light_type::LightType;
@@ -127,6 +128,7 @@ impl Deref for LightComponent{
 }
 
 #[derive(Component)]
+#[derive(Clone)]
 pub struct ShadowMapComponent {
     pub shadow_data: ShadowData,
     pub tile: Arc<RwLock<AtlasTile>>,
@@ -150,16 +152,10 @@ impl ShadowCastComponent {
     }
 }
 
-impl From<bool> for ShadowCastComponent {
-    fn from(shadow_cast: bool) -> Self {
-        Self::new(shadow_cast)
-    }
-}
+impl GpuStorable for ShadowMapComponent {
+    type Storage = ShadowData;
 
-impl Deref for ShadowCastComponent {
-    type Target = bool;
-
-    fn deref(&self) -> &Self::Target {
-        &self.shadow_cast
+    fn as_storage(&self) -> Self::Storage {
+        self.shadow_data
     }
 }

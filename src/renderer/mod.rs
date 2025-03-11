@@ -9,6 +9,7 @@ pub mod shadow_atlas;
 mod render_graph;
 mod shadow_data_storage;
 pub mod light_storage;
+mod gpu_storage;
 
 use std::sync::Arc;
 use log::{error, info};

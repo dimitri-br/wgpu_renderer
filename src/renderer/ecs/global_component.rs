@@ -86,11 +86,11 @@ impl GlobalComponent {
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::Buffer(light_storage.get_buffer_binding()),
+                resource: wgpu::BindingResource::Buffer(light_storage.storage.get_buffer_binding()),
             },
             wgpu::BindGroupEntry {
                 binding: 2,
-                resource: wgpu::BindingResource::Buffer(shadow_data_storage.get_buffer_binding()),
+                resource: wgpu::BindingResource::Buffer(shadow_data_storage.storage.get_buffer_binding()),
             }
         ], global_bind_group_key.clone(), true);
 
@@ -115,11 +115,11 @@ impl GlobalComponent {
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::Buffer(self.light_storage.get_buffer_binding()),
+                resource: wgpu::BindingResource::Buffer(self.light_storage.storage.get_buffer_binding()),
             },
             wgpu::BindGroupEntry{
                 binding: 2,
-                resource: wgpu::BindingResource::Buffer(self.shadow_data_storage.get_buffer_binding()),
+                resource: wgpu::BindingResource::Buffer(self.shadow_data_storage.storage.get_buffer_binding()),
             }
         ], self.global_bind_group_key.clone(), false);
     }
