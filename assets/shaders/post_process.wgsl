@@ -13,6 +13,8 @@ struct Light {
     color: vec3<f32>,
     light_type: u32,  // 0 = directional, 1 = point, 2 = spot
     view_proj: mat4x4<f32>,  // Precomputed shadow pass matrix.
+    shadow_index: u32,  // Index into shadow_data array.
+    shadow_count: u32,  // Number of shadow maps to use.
 };
 
 

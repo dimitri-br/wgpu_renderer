@@ -181,7 +181,7 @@ impl FpsCamera {
     /// Build the combined view-projection matrix
     pub fn build_vp(&self) -> Mat4 {
         let view = self.build_view_matrix();
-        let proj = Mat4::perspective_rh_gl(self.fovy, self.aspect, self.znear, self.zfar);
+        let proj = Mat4::perspective_rh(self.fovy, self.aspect, self.znear, self.zfar);
         proj * view
     }
 
@@ -215,7 +215,7 @@ impl Camera for FpsCamera {
     }
 
     fn build_projection_matrix(&self) -> Mat4 {
-        Mat4::perspective_rh_gl(self.fovy, self.aspect, self.znear, self.zfar)
+        Mat4::perspective_rh(self.fovy, self.aspect, self.znear, self.zfar)
     }
 
     fn build_view_projection_matrix(&self) -> Mat4 {

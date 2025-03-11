@@ -21,8 +21,9 @@ struct Light {
     color: vec3<f32>,
     light_type: u32,  // 0 = directional, 1 = point, 2 = spot
     view_proj: mat4x4<f32>,  // Precomputed shadow pass matrix.
+    shadow_index: u32,  // Index into shadow_data array.
+    shadow_count: u32,  // Number of shadow maps to use.
 };
-
 
 struct ShadowData {
     light_view_proj: mat4x4<f32>, // Precomputed shadow pass matrix.
@@ -48,6 +49,7 @@ var<storage, read> shadow_data: array<ShadowData>;
 // The shader computes the view matrix as the inverse of this matrix.
 struct Transform {
     model: mat4x4<f32>,
+    shadow_view_proj: mat4x4<f32>,
 };
 
 
@@ -70,41 +72,12 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-
-    // First, loop through lights to see if we have a directional light.
-    // If we do, we'll use it for the main directional light.
-    let num_lights: u32 = arrayLength(&lights);
-    var found_directional: bool = false;
-    var directional_index: u32 = 0u;
-    for (var i: u32 = 0u; i < num_lights; i = i + 1u) {
-        let light = lights[i];
-        if (light.light_type == 0u) {
-            directional_index = i;
-            found_directional = true;
-            break;
-        }
-    }
-
-    // 5) Directional light (no shadow yet).
-    // Check if we have a directional light.
-    if (found_directional) {
-        var directional_light: Light = lights[directional_index];
-        var directional_shadow_data: ShadowData = shadow_data[directional_index];
-
-        output.position = directional_light.view_proj * uniforms.model * vec4<f32>(input.position, 1.0);
-    } else {
-        output.position = vec4<f32>(input.position, 1.0);
-    }
+    let world_pos = (uniforms.model * vec4<f32>(input.position, 1.0)).xyz;
+    output.position = uniforms.shadow_view_proj * vec4<f32>(world_pos, 1.0);
     return output;
 }
 
-// -----------------------------------------------------------------------------
-// Fragment Shader: Depth-Only Output
-// -----------------------------------------------------------------------------
-// Outputs the computed depth value.
 @fragment
-fn fs_main(input: VertexOutput) -> @builtin(frag_depth) f32 {
-    // Compute normalized depth.
-    let depth = input.position.z / input.position.w;
-    return depth;
+fn fs_main(input: VertexOutput) {
+    return;
 }

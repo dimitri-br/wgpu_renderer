@@ -7,7 +7,7 @@ pub enum LightType {
 }
 
 impl LightType {
-    pub fn from_i32(value: u32) -> Self {
+    pub fn from_u32(value: u32) -> Self {
         match value {
             0 => LightType::Directional,
             1 => LightType::Point,

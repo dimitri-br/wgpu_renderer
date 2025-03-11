@@ -86,6 +86,21 @@ impl LightStorage {
         self.ensure_capacity();
     }
 
+    /// Gets a light at the given index.
+    pub fn get_light(&self, index: usize) -> Option<&Light> {
+        self.lights.get(index)
+    }
+
+    /// Gets a mutable reference to a light at the given index.
+    pub fn get_light_mut(&mut self, index: usize) -> Option<&mut Light> {
+        self.lights.get_mut(index)
+    }
+
+    /// Gets all lights.
+    pub fn get_all_lights(&self) -> &Vec<Light> {
+        &self.lights
+    }
+
     /// Checks if the current buffer capacity is enough; if not, reallocates the buffer.
     /// If capacity is sufficient, just updates the buffer data.
     fn ensure_capacity(&mut self) {

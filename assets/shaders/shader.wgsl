@@ -25,6 +25,8 @@ struct Light {
     color: vec3<f32>,
     light_type: u32,  // 0 = directional, 1 = point, 2 = spot
     view_proj: mat4x4<f32>,  // Precomputed shadow pass matrix.
+    shadow_index: u32,  // Index into shadow_data array.
+    shadow_count: u32,  // Number of shadow maps to use.
 };
 
 
@@ -59,10 +61,10 @@ fn gb_vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
 
     // Compute the world-space position from the model matrix
-    let world_pos: vec3<f32> = (uniforms.model * vec4<f32>(input.position, 1.0)).xyz;
+    let world_pos: vec4<f32> = (uniforms.model * vec4<f32>(input.position, 1.0));
 
     // Convert from world-space to clip-space using the view-projection matrix
-    output.out_position = global_data.view_proj * vec4<f32>(world_pos, 1.0);
+    output.out_position = global_data.view_proj * world_pos;
 
     // Pass through the texture coordinates directly
     output.tex_coords = input.tex_coords;

@@ -1,7 +1,9 @@
 use std::sync::Arc;
 use log::{error, info};
 use std::mem::size_of;
+use shipyard::Unique;
 use wgpu::{Buffer, BufferAddress, BufferBinding, BufferBindingType, BufferDescriptor, BufferUsages, Device, Queue};
+use crate::renderer::ecs::components::ShadowMapComponent;
 use crate::renderer::types::light::Light;
 use crate::renderer::types::shadow_data::ShadowData;
 
@@ -9,7 +11,7 @@ pub(crate) struct ShadowDataStorage {
     device: Arc<Device>,
     queue: Arc<Queue>,
     /// The current list of lights that we intend to upload.
-    pub shadow_data: Vec<ShadowData>,
+    pub shadow_data: Vec<ShadowMapComponent>,
     /// The maximum number of lights the current GPU buffer can store.
     buffer_capacity: usize,
     storage_buffer: Buffer,
@@ -43,7 +45,7 @@ impl ShadowDataStorage {
         })
     }
 
-    pub fn add_shadow_data(&mut self, shadow_data: ShadowData) -> usize {
+    pub fn add_shadow_data(&mut self, shadow_data: ShadowMapComponent) -> usize {
         self.shadow_data.push(shadow_data);
         self.ensure_capacity();
         self.shadow_data.len() - 1
@@ -62,15 +64,27 @@ impl ShadowDataStorage {
         }
     }
 
-    pub fn set_shadow_data(&mut self, shadow_data: Vec<ShadowData>) {
+    pub fn set_shadow_data(&mut self, shadow_data: Vec<ShadowMapComponent>) {
         self.shadow_data = shadow_data;
         self.ensure_capacity();
     }
 
     /// Replaces all lights and updates the buffer.
-    pub fn set_all_shadow_data(&mut self, shadow_data: Vec<ShadowData>) {
+    pub fn set_all_shadow_data(&mut self, shadow_data: Vec<ShadowMapComponent>) {
         self.shadow_data = shadow_data;
         self.ensure_capacity();
+    }
+
+    pub fn get_shadow_data(&self, index: usize) -> Option<&ShadowMapComponent> {
+        self.shadow_data.get(index)
+    }
+
+    pub fn get_shadow_data_mut(&mut self, index: usize) -> Option<&mut ShadowMapComponent> {
+        self.shadow_data.get_mut(index)
+    }
+
+    pub fn get_all_shadow_data(&self) -> &Vec<ShadowMapComponent> {
+        &self.shadow_data
     }
 
     /// Checks if the current buffer capacity is enough; if not, reallocates the buffer.
@@ -95,7 +109,12 @@ impl ShadowDataStorage {
 
     /// Uploads the current light data to the GPU.
     pub fn update_buffer(&mut self) {
-        let data = bytemuck::cast_slice(&self.shadow_data);
+        // Iterate over the shadow data to extract the data we want to upload.
+        let mut shadow_data = Vec::with_capacity(self.shadow_data.len());
+        for shadow_map in &self.shadow_data {
+            shadow_data.push(shadow_map.shadow_data);
+        }
+        let data = bytemuck::cast_slice(&shadow_data);
         self.queue.write_buffer(&self.storage_buffer, 0, data);
         self.needs_rebuild = false;
     }

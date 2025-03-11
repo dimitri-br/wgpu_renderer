@@ -177,8 +177,8 @@ impl Material {
                             depth_compare: wgpu::CompareFunction::LessEqual,
                             stencil: StencilState::default(),
                             bias: DepthBiasState {
-                                constant: 2,
-                                slope_scale: 2.0,
+                                constant: 4,
+                                slope_scale: 1.5,
                                 clamp: 0.0,
                             }
                         }

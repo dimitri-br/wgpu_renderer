@@ -10,8 +10,11 @@ pub struct Light{
     pub rotation: glam::Vec3, // Only applicable for directional lights and spotlights
     pub intensity: f32,
     pub color: glam::Vec3,
-    pub light_type: LightType,
+    pub light_type: u32,
     pub view_proj: glam::Mat4, // Only applicable for directional lights and spotlights
+    pub shadow_data_offset: u32, // Only applicable for shadow casting lights
+    pub shadow_data_count: u32, // Only applicable for shadow casting lights
+    _padding: [f32; 2],
 }
 
 impl Light{
@@ -22,9 +25,17 @@ impl Light{
             color,
             intensity,
             range,
-            light_type,
+            light_type: light_type as u32,
             view_proj: glam::Mat4::IDENTITY,
+            shadow_data_offset: 0,
+            shadow_data_count: 0,
+            _padding: [0.0; 2],
         }
+    }
+
+    pub fn set_shadow_data(&mut self, shadow_data_offset: u32, shadow_data_count: u32){
+        self.shadow_data_offset = shadow_data_offset;
+        self.shadow_data_count = shadow_data_count;
     }
 
     pub fn set_view_proj(&mut self, view_proj: glam::Mat4){

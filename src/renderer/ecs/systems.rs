@@ -22,6 +22,7 @@ use crate::renderer::ecs::render_graphics_view::RenderGraphicsViewMut;
 use crate::renderer::asset_manager::AssetManager;
 use crate::renderer::render_graph::{RenderGraph, RenderGraphContext, RenderGraphNode};
 use crate::renderer::shadow_atlas::ShadowAtlas;
+use crate::renderer::shadow_data_storage::ShadowDataStorage;
 use crate::renderer::State;
 use crate::renderer::types::camera::Camera;
 use crate::renderer::types::light::Light;
@@ -153,12 +154,13 @@ pub fn add_entities(
     mut entities: EntitiesViewMut,
     asset_manager: UniqueView<AssetManager>,
     mut shadow_atlas: UniqueViewMut<ShadowAtlas>,
+    mut global_component: UniqueViewMut<GlobalComponent>,
+    // Components
     mut meshes: ViewMut<MeshComponent>,
     mut materials: ViewMut<MaterialComponent>,
     mut transforms: ViewMut<TransformComponent>,
     mut shadow_cast_component: ViewMut<ShadowCastComponent>,
     mut lights: ViewMut<LightComponent>,
-    mut shadow_map_components: ViewMut<ShadowMapComponent>,
 ) {
     // Spawn one box entity. Make it really long and wide, but thin.
     entities.add_entity(
@@ -250,11 +252,11 @@ pub fn add_entities(
         0.001,
     );
 
-    let light = LightComponent::new(Light::new(
+    let mut light = LightComponent::new(Light::new(
         vec3(0.0, 5.0, 0.0),
         vec3(0.5, -1.0, 0.0),
         vec3(1.0, 1.0, 1.0),
-        1.0,
+        0.5,
         100.0,
         LightType::Directional,
     ), LightType::Directional);
@@ -264,21 +266,24 @@ pub fn add_entities(
 
     let smc = ShadowMapComponent::new(directional_shadow_data, directional_shadow_map);
 
+    let idx = global_component.shadow_data_storage.add_shadow_data(smc);
+    light.light.set_shadow_data(idx as u32, 1);
+
     // Spawn a directional light.
     entities.add_entity(
-        (&mut lights, &mut transforms, &mut shadow_map_components),
-        (light, transform, smc),
+        (&mut lights, &mut transforms),
+        (light, transform),
     );
 
     // Spawn a few light entities.
     entities.bulk_add_entity(
-        (&mut lights, &mut transforms, &mut shadow_map_components),
-        (0..3).map(|_| {
+        (&mut lights, &mut transforms),
+        (0..2).map(|_| {
             let mut light_transform = Transform::new();
             light_transform.translate(vec3(
-                random::<f32>() * 25.0 - 12.5,
-                2.0,
-                random::<f32>() * 25.0 - 12.5,
+                random::<f32>() * 50.0 - 25.0,
+                10.0,
+                random::<f32>() * 50.0 - 25.0,
             ));
             // Color is either red, green, or blue.
             let color = match random::<u8>() % 3 {
@@ -286,28 +291,54 @@ pub fn add_entities(
                 1 => vec3(0.0, 1.0, 0.0),
                 _ => vec3(0.0, 0.0, 1.0),
             };
-            let intensity = random::<f32>() * 10.0 + 10.0;
-            let range = 10.0;
+            let intensity = random::<f32>() * 5.0 + 2.5;
+            let range = 15.0;
             let rotation = vec3(0.0, 0.0, 0.0);
-            let light = Light::new(light_transform.translation(), rotation, color, intensity, range, LightType::Point);
+            let mut light = Light::new(light_transform.translation(), rotation, color, intensity, range, LightType::Point);
+
+            // These are point lights, so we need to allocate per axis
+            let shadow_map_resolution = 2048; // 1024x1024 spread over 6 faces
+            let proj = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.1, light.range);
+            let views = [
+                // X+
+                glam::Mat4::look_at_rh(light_transform.translation(), light_transform.translation() + vec3(1.0, 0.0, 0.0), vec3(0.0, -1.0, 0.0)),
+                // X-
+                glam::Mat4::look_at_rh(light_transform.translation(), light_transform.translation() + vec3(-1.0, 0.0, 0.0), vec3(0.0, -1.0, 0.0)),
+                // Y+
+                glam::Mat4::look_at_rh(light_transform.translation(), light_transform.translation() + vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0)),
+                // Y-
+                glam::Mat4::look_at_rh(light_transform.translation(), light_transform.translation() + vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, -1.0)),
+                // Z+
+                glam::Mat4::look_at_rh(light_transform.translation(), light_transform.translation() + vec3(0.0, 0.0, 1.0), vec3(0.0, -1.0, 0.0)),
+                // Z-
+                glam::Mat4::look_at_rh(light_transform.translation(), light_transform.translation() + vec3(0.0, 0.0, -1.0), vec3(0.0, -1.0, 0.0)),
+            ];
+            let mut start_index: u32 = 0;
+            // For each face, we need to allocate a tile
+            for i in 0..6 {
+                let shadow_map = shadow_atlas.allocate_tile(shadow_map_resolution, shadow_map_resolution).unwrap();
+                // Calculate the projection matrix
+                let shadow_data = ShadowData::new(
+                    proj * views[i],
+                    shadow_map.read().unwrap().uv_offset,
+                    shadow_map.read().unwrap().uv_scale,
+                    0.0005,
+                );
+                let shadow_map_component = ShadowMapComponent::new(shadow_data, shadow_map);
+
+                let idx = global_component.shadow_data_storage.add_shadow_data(shadow_map_component);
+                if i == 0 {
+                    start_index = idx as u32;
+                    println!("Start index: {}", start_index);
+                }
+            }
+
+            light.set_shadow_data(start_index, 6);
+
             let light_component = LightComponent::new(light, LightType::Point);
             let transform_component = TransformComponent { transform: light_transform };
 
-            // These are point lights, so we need to allocate per axis
-            let shadow_map_resolution = 1024; // 1024x1024 spread over 6 faces
-            // For each face, we need to allocate a tile
-            let shadow_map = shadow_atlas.allocate_tile(shadow_map_resolution, shadow_map_resolution).unwrap();
-
-            let shadow_data = ShadowData::new(
-                glam::Mat4::IDENTITY,
-                shadow_map.read().unwrap().uv_offset,
-                shadow_map.read().unwrap().uv_scale,
-                0.001,
-            );
-
-            let shadow_map_component = ShadowMapComponent::new(shadow_data, shadow_map);
-
-            (light_component, transform_component, shadow_map_component)
+            (light_component, transform_component)
         }),
     );
 }
@@ -386,16 +417,13 @@ pub fn update_system(
 pub fn light_update_system(
     mut global_component: UniqueViewMut<GlobalComponent>,
     mut lights: ViewMut<LightComponent>,
-    mut shadow_map_components: ViewMut<ShadowMapComponent>,
     camera: UniqueView<CameraComponent>,
 ) {
     let mut light_data: Vec<Light> = Vec::new();
-    let mut shadow_data: Vec<ShadowData> = Vec::new();
+    let mut shadow_data: Vec<ShadowMapComponent> = Vec::new();
     // Iterate over the lights + shadow data and update
-    (&mut lights, &mut shadow_map_components).iter().for_each(|(light, smc)| {
-        let shadow_map_data = &mut smc.shadow_data;
-
-        match light.light_type{
+    (&mut lights).iter().for_each(|(light)| {
+        match LightType::from_u32(light.light_type) {
             LightType::Directional => {
                 let light = &mut light.light;
                 let camera = &camera.camera;
@@ -409,17 +437,51 @@ pub fn light_update_system(
                 let light_view = glam::Mat4::look_at_rh(light_pos, scene_center, glam::Vec3::Y);
                 let proj = glam::Mat4::orthographic_rh(-30.0, 30.0, -30.0, 30.0, 0.1, 100.0);
                 let light_view_proj = proj * light_view;
-                shadow_map_data.light_view_proj = light_view_proj;
+                for i in 0..light.shadow_data_count{
+                    if let Some(shadow_map_data) = global_component.shadow_data_storage.get_shadow_data_mut(light.shadow_data_offset as usize + i as usize) {
+                        shadow_map_data.shadow_data.light_view_proj = light_view_proj;
+                    }
+                }
+
                 light.view_proj = light_view_proj;
+            },
+            LightType::Point => {
+                let light = &mut light.light;
+
+                let light_pos = light.position;
+                // Calculate the projection matrix
+                let proj = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.1, light.range);
+
+                let views = [
+                    // X+
+                    glam::Mat4::look_at_rh(light_pos, light_pos + vec3(1.0, 0.0, 0.0), vec3(0.0, -1.0, 0.0)),
+                    // X-
+                    glam::Mat4::look_at_rh(light_pos, light_pos + vec3(-1.0, 0.0, 0.0), vec3(0.0, -1.0, 0.0)),
+                    // Y+
+                    glam::Mat4::look_at_rh(light_pos, light_pos + vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0)),
+                    // Y-
+                    glam::Mat4::look_at_rh(light_pos, light_pos + vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, -1.0)),
+                    // Z+
+                    glam::Mat4::look_at_rh(light_pos, light_pos + vec3(0.0, 0.0, 1.0), vec3(0.0, -1.0, 0.0)),
+                    // Z-
+                    glam::Mat4::look_at_rh(light_pos, light_pos + vec3(0.0, 0.0, -1.0), vec3(0.0, -1.0, 0.0)),
+                ];
+
+                for i in 0..light.shadow_data_count {
+                    if let Some(shadow_map_data) = global_component.shadow_data_storage.get_shadow_data_mut(light.shadow_data_offset as usize + i as usize) {
+                        let view_proj = proj * views[i as usize];
+                        shadow_map_data.shadow_data.light_view_proj = view_proj;
+                    }
+                }
+
+                light.view_proj = glam::Mat4::IDENTITY;
             },
             _ => {}
         };
 
         light_data.push(light.clone());
-        shadow_data.push(shadow_map_data.clone());
     });
     global_component.light_storage.set_lights(light_data);
-    global_component.shadow_data_storage.set_all_shadow_data(shadow_data);
 
     if global_component.light_storage.needs_rebuild {
         info!("Rebuilding light storage buffer");
@@ -457,7 +519,6 @@ pub fn render_graph_system(
     mat_comps: View<MaterialComponent>,
     transform_comps: View<TransformComponent>,
     shadow_cast_component: View<ShadowCastComponent>,
-    shadow_map_components: View<ShadowMapComponent>,
 ) {
     // For demonstration, obtain our output and shadow atlas texture views from the asset manager.
     let shadow_atlas_view = graphics.shadow_atlas.texture.view.clone();
@@ -557,21 +618,31 @@ pub fn render_graph_system(
                 // Set the pipeline and bind group.
                 pass.set_pipeline(&shadow_material.get_pipeline());
                 // Set the viewport.
-                (&shadow_map_components).iter().for_each(|smc| {
-                    pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
-                    let rect = smc.tile.read().unwrap().rect;
-                    pass.set_viewport(rect.x as f32, rect.y as f32, rect.width as f32, rect.height as f32, 0.0, 1.0);
-                    // Set the light view-projection matrix as a push constant.
-                    // Iterate over mesh entities and issue draw calls.
-                    (&mesh_comps, &transform_comps, &shadow_cast_component).iter().for_each(|(mesh_comp, transform_comp, shadow_caster)| {
-                        if shadow_caster.shadow_cast {
-                            let transform = [transform_comp.transform.matrix];
-                            let transform_push_const = bytemuck::cast_slice(&transform);
-                            pass.set_push_constants(wgpu::ShaderStages::VERTEX_FRAGMENT, 0, &transform_push_const);
-                            mesh_comp.mesh.draw(&mut pass);
-                        }
-                    });
-                })
+                let shadow_data = graphics.global_component.shadow_data_storage.get_all_shadow_data();
+                let light_data = graphics.global_component.light_storage.get_all_lights();
+                for (light_idx, light) in light_data.iter().enumerate() {
+                    for i in 0..light.shadow_data_count{
+                        let offset = light.shadow_data_offset as usize + i as usize;
+                        let smc = &shadow_data[offset];
+                        let rect = smc.tile.read().unwrap().rect;
+                        pass.set_viewport(rect.x as f32, rect.y as f32, rect.width as f32, rect.height as f32, 0.0, 1.0);
+                        pass.set_scissor_rect(rect.x as u32, rect.y as u32, rect.width as u32, rect.height as u32);
+
+                        pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
+                        // Set the light view-projection matrix as a push constant.
+                        // Iterate over mesh entities and issue draw calls.
+                        (&mesh_comps, &transform_comps, &shadow_cast_component).iter().for_each(|(mesh_comp, transform_comp, shadow_caster)| {
+                            if shadow_caster.shadow_cast {
+                                let model_matrix = [transform_comp.transform.matrix];
+                                let mut push_data = Vec::with_capacity(32); // 32 floats = 128 bytes
+                                push_data.extend_from_slice(bytemuck::bytes_of(&model_matrix));        // first 16 floats
+                                push_data.extend_from_slice(bytemuck::bytes_of(&smc.shadow_data.light_view_proj)); // next 16 floats
+                                pass.set_push_constants(wgpu::ShaderStages::VERTEX_FRAGMENT, 0, &push_data);
+                                mesh_comp.mesh.draw(&mut pass);
+                            }
+                        });
+                    }
+                }
             }
         }),
     });
