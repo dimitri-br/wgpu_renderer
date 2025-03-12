@@ -249,7 +249,7 @@ pub fn add_entities(
         glam::Mat4::IDENTITY,
         directional_shadow_map.read().unwrap().uv_offset,
         directional_shadow_map.read().unwrap().uv_scale,
-        0.001,
+        0.0015,
     );
 
     let mut light = LightComponent::new(Light::new(
@@ -278,12 +278,12 @@ pub fn add_entities(
     // Spawn a few light entities.
     entities.bulk_add_entity(
         (&mut lights, &mut transforms),
-        (0..2).map(|_| {
+        (0..5).map(|_| {
             let mut light_transform = Transform::new();
             light_transform.translate(vec3(
-                random::<f32>() * 50.0 - 25.0,
+                random::<f32>() * 25.0 - 12.5,
                 10.0,
-                random::<f32>() * 50.0 - 25.0,
+                random::<f32>() * 25.0 - 12.5,
             ));
             // Color is either red, green, or blue.
             let color = match random::<u8>() % 3 {
@@ -297,7 +297,7 @@ pub fn add_entities(
             let mut light = Light::new(light_transform.translation(), rotation, color, intensity, range, LightType::Point);
 
             // These are point lights, so we need to allocate per axis
-            let shadow_map_resolution = 2048; // 1024x1024 spread over 6 faces
+            let shadow_map_resolution = 512; // 1024x1024 spread over 6 faces
             let proj = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.1, light.range);
             let views = [
                 // X+
@@ -322,7 +322,7 @@ pub fn add_entities(
                     proj * views[i],
                     shadow_map.read().unwrap().uv_offset,
                     shadow_map.read().unwrap().uv_scale,
-                    0.0005,
+                    0.0001,
                 );
                 let shadow_map_component = ShadowMapComponent::new(shadow_data, shadow_map);
 
@@ -519,7 +519,6 @@ pub fn render_graph_system(
         encoder: &mut graphics.encoder,
         asset_manager: &*asset_manager,
         global_component: &*graphics.global_component,
-        camera_component: &*graphics.camera_component,
         output_view: graphics.view.clone(),
         shadow_atlas_view,
     };

@@ -49,8 +49,8 @@ fn main() {
         state.bind_group_cache.clone(),
     );
     let auto_mipmapper = AutoMipmapper::new(state.device.clone(), wgpu::TextureFormat::Rgba8UnormSrgb);
-    let mut shadow_atlas = ShadowAtlas::new(&state.device.clone(), &state.queue.clone(), 2048*4, 2048*4, wgpu::TextureFormat::Depth32Float);
-    let global_component = GlobalComponent::new(&state, &mut shadow_atlas);
+    let shadow_atlas = ShadowAtlas::new(&state.device.clone(), &state.queue.clone(), 2048*4, 2048*4, wgpu::TextureFormat::Depth32Float);
+    let global_component = GlobalComponent::new(&state);
 
     let camera_component: CameraComponent = FpsCamera::new(
         glam::vec3(0.0, 0.0, -3.0),

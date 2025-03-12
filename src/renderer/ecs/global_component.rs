@@ -28,7 +28,7 @@ pub struct GlobalComponent{
 }
 
 impl GlobalComponent {
-    pub fn new(state: &State, shadow_atlas: &mut ShadowAtlas) -> Self{
+    pub fn new(state: &State) -> Self{
         let global_data = Globals::new();
 
 

@@ -97,7 +97,14 @@ fn compute_shadow_coord(sd: ShadowData, world_pos: vec3<f32>, remapZ: bool) -> v
         coord.z = coord.z * 0.5 + 0.5;
     }
     // Apply bias.
-    coord.z -= sd.bias;
+        let depth_bias = sd.bias * (1.0 + abs(dot(normalize(world_pos - global_data.view_proj[3].xyz), normalize(world_pos))));
+        coord.z -= depth_bias;
+    //coord.z -= sd.bias;
+
+    // Adjust bias based on the slope of the surface.
+    // This is a common technique to reduce shadow acne.
+    let slope = 1.0 - dot(world_pos, sd.light_view_proj[2].xyz);
+    coord.z += slope * sd.bias;
 
     // Check if the coord falls outside the atlas.
     // We can do this by checking against the min/max that the
@@ -129,6 +136,9 @@ fn deferred_fs(input: VertexOutput) -> @location(0) vec4<f32> {
     var world_pos = global_data.inv_view_proj * ndc;
     world_pos /= world_pos.w;
 
+    // Calculate the real world units based on the depth
+    let depth_dist = length(world_pos.xyz - global_data.view_proj[3].xyz);
+
     // Start with an ambient term.
     var final_color = albedo * 0.05;
 
@@ -143,7 +153,6 @@ fn deferred_fs(input: VertexOutput) -> @location(0) vec4<f32> {
             let NdotL = max(dot(normal, L), 0.0);
             if (NdotL > 0.0) {
                 var diffuse = albedo * light.color * NdotL * light.intensity;
-                // For directional lights, assume the shadow map is rendered with a projection that already maps Z to [0,1].
                 let sd = shadow_data[light.shadow_offset];
                 var shadow_coord = compute_shadow_coord(sd, world_pos.xyz, false);
 
@@ -161,30 +170,54 @@ fn deferred_fs(input: VertexOutput) -> @location(0) vec4<f32> {
                 }
                 let shadow_factor = pcf_sum / 9.0;
                 diffuse *= shadow_factor;
-                final_color += diffuse;
+                //final_color += diffuse;
             }
         } else if (light.light_type == 1u) {
-            // Point light.
+            var diffuse = vec3<f32>(0.0);
             let to_light = light.position - world_pos.xyz;
-            if (length(to_light) > light.range) { continue; }
-            let face_index = pick_point_light_face(to_light);
-            let sd = shadow_data[light.shadow_offset + face_index];
-            // For point lights, remap Z from [-1,1] to [0,1].
-            var shadow_coord = compute_shadow_coord(sd, world_pos.xyz, true);
-            let stored_depth = textureSample(shadow_map, g_sampler, shadow_coord.xy);
-            let shadow_factor = select(1.0, 0.0, shadow_coord.z > stored_depth);
-
             let L = normalize(to_light);
             let NdotL = max(dot(normal, L), 0.0);
             let falloff = 1.0 - saturate(length(to_light) / light.range);
             if (NdotL > 0.0) {
-                var diffuse = albedo * light.color * NdotL * light.intensity * falloff;
-                diffuse *= shadow_factor;
-                final_color += diffuse;
+                diffuse = albedo * light.color * NdotL * light.intensity * falloff;
+
+            // Point light.
+            if (length(to_light) > light.range) { continue; }
+
+
+            let face_index = pick_point_light_face(to_light);
+            let sd = shadow_data[light.shadow_offset + face_index];
+            // Compute vector from world position to the light
+            let to_light_norm = normalize(light.position - world_pos.xyz);
+
+            // Compute a slope-based bias
+            let slope_bias = sd.bias * max(0.05, 1.0 - dot(normal, to_light_norm));
+
+            // Compute a depth-based bias (scales with distance)
+            let depth_factor = clamp(length(world_pos.xyz - light.position) * 0.0005, 0.0001, 0.01);
+
+            // Combine both biases
+            var total_bias = slope_bias + depth_factor;
+
+            // Apply bias **before projection**
+            var world_pos_offset = world_pos.xyz + normal * total_bias;
+            var shadow_coord = compute_shadow_coord(sd, world_pos_offset, true);
+
+            // For point lights, remap Z from [-1,1] to [0,1].
+            //var shadow_coord = compute_shadow_coord(sd, world_pos.xyz, true);
+            let stored_depth = textureSample(shadow_map, g_sampler, shadow_coord.xy);
+            var shadow_factor = select(1.0, 0.0, shadow_coord.z > stored_depth);
+
+            diffuse *= shadow_factor;
+            final_color += diffuse;
+
+            //final_color = vec3<f32>(shadow_coord.z);
             }
         }
         // Spot lights (light_type == 2) can be added similarly.
     }
+
+    //final_color = vec3(depth_dist);
 
     return vec4<f32>(final_color, 1.0);
 }

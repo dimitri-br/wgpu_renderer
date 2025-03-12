@@ -9,15 +9,6 @@ use std::{
 };
 use wgpu::{Device, PipelineLayout, PushConstantRange, RenderPipeline};
 
-// The closure type now takes three mut references:
-//   1) The pipeline descriptor
-//   2) The color_targets slice
-//   3) The primitive state
-type PipelineConfigFn = dyn FnOnce(
-    &mut wgpu::RenderPipelineDescriptor,
-    &mut [Option<wgpu::ColorTargetState>],
-    &mut wgpu::PrimitiveState,
-);
 
 // -----------------------------------------------------------------------------
 // PipelineLayoutKey

@@ -16,8 +16,6 @@ pub struct RenderGraphContext<'a> {
     pub asset_manager: &'a AssetManager,
     /// The global component that stores uniform buffers and other global state.
     pub global_component: &'a GlobalComponent,
-    /// The current camera component.
-    pub camera_component: &'a CameraComponent,
     /// A handle to the final output texture view.
     pub output_view: Arc<TextureView>,
     /// A handle to the shadow atlas view.

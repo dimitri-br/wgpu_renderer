@@ -21,7 +21,7 @@ pub(crate) struct Globals {
     /// Time
     pub time: f32,
     /// Padding
-    _padding: f32,
+    _padding: f32
 }
 
 impl Globals {
@@ -32,7 +32,7 @@ impl Globals {
             inv_view_proj: glam::Mat4::IDENTITY,
             screen_size: glam::Vec2::new(0.0, 0.0),
             time: 0.0,
-            _padding: 0.0,
+            _padding: 0.0
         }
     }
 
