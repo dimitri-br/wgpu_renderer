@@ -51,7 +51,7 @@ impl State {
             } else if cfg!(target_os = "macos") {
                 Backends::METAL
             } else {
-                Backends::DX12
+                Backends::PRIMARY
             },
             flags: InstanceFlags::default(),
             backend_options: Default::default(),

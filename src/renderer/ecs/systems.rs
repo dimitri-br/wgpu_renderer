@@ -451,7 +451,7 @@ pub fn light_update_system(
 
                 let light_pos = light.position;
                 // Calculate the projection matrix
-                let proj = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 1.0, light.range);
+                let proj = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.1, light.range);
 
                 let views = [
                     // X+

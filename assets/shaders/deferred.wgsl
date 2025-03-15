@@ -186,46 +186,35 @@ fn deferred_fs(input: VertexOutput) -> @location(0) vec4<f32> {
             if (NdotL > 0.0) {
                 diffuse = albedo * light.color * NdotL * light.intensity * falloff;
 
-            // Point light.
-            if (length(to_light) > light.range) { continue; }
+                // Point light.
+                if (length(to_light) > light.range) { continue; }
 
 
-            let face_index = pick_point_light_face(to_light);
-            let sd = shadow_data[light.shadow_offset + face_index];
-            // Compute vector from world position to the light
-            let to_light_norm = normalize(light.position - world_pos.xyz);
+                let face_index = pick_point_light_face(to_light);
+                let sd = shadow_data[light.shadow_offset + face_index];
+                // Compute vector from world position to the light
+                let to_light_norm = normalize(light.position - world_pos.xyz);
 
-            // Adjust for
-            var shadow_coord = compute_shadow_coord(sd, world_pos.xyz, true);
+                // Adjust shadow coord to be in the light's view space.
+                var pos = world_pos.xyz;
 
-            ///final_color = shadow_coord.xyz;
-            // For point lights, remap Z from [-1,1] to [0,1].
-            //var shadow_coord = compute_shadow_coord(sd, world_pos.xyz, true);
-            var stored_depth = textureSample(shadow_map, g_sampler, shadow_coord.xy);
-            // Convert the stored depth
-            stored_depth = decompress_depth(stored_depth, 1.0, light.range);
+                var shadow_coord = compute_shadow_coord(sd, pos, true);
 
-            var depth_based_shadow_factor = select(1.0, 0.0, shadow_coord.z > stored_depth);
-
-            // Compare the stored depth to the distance of fragment to light.
-            // If the fragment is closer to the light, it is in shadow.
-            // Multiply stored depth by the range of the light to get the real distance.
-            var dist = length(to_light);
-            var shadow_dist = dist / light.range;
-            // Apply bias
-            shadow_dist += sd.bias;
-
-            // Compute the shadow factor.We do this by combining both the depth comparison
-            // method and the distance comparison method.
-            // The shadow factor is 1.0 if the fragment is in shadow, and 0.0 if it is not.
-            var dist_based_shadow_factor = select(1.0, 0.0, shadow_dist > stored_depth);
-            var shadow_factor = max(depth_based_shadow_factor, dist_based_shadow_factor);
-
-            diffuse *= shadow_factor;
-            final_color += diffuse;
-            //final_color = to_light_norm;
-
-            //final_color = vec3<f32>(shadow_coord.z);
+                // Sample the shadow map.
+                let offsets = array<vec2<f32>, 9>(
+                    vec2<f32>(-1.0, -1.0), vec2<f32>( 0.0, -1.0), vec2<f32>( 1.0, -1.0),
+                    vec2<f32>(-1.0,  0.0), vec2<f32>( 0.0,  0.0), vec2<f32>( 1.0,  0.0),
+                    vec2<f32>(-1.0,  1.0), vec2<f32>( 0.0,  1.0), vec2<f32>( 1.0,  1.0)
+                );
+                let kernel_radius = 0.0002;
+                var pcf_sum = 0.0;
+                for (var j = 0u; j < 9u; j = j + 1u) {
+                    let offset = offsets[j] * kernel_radius;
+                    pcf_sum += textureSampleCompare(shadow_map, shadow_sampler, shadow_coord.xy + offset, shadow_coord.z);
+                }
+                let shadow_factor = pcf_sum / 9.0;
+                diffuse *= shadow_factor;
+                final_color += diffuse;
             }
         }
         // Spot lights (light_type == 2) can be added similarly.
