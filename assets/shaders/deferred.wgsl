@@ -56,29 +56,49 @@ struct VertexOutput {
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
-    let positions = array<vec2<f32>, 3>(
-        vec2<f32>(-1.0, -3.0),
-        vec2<f32>( 3.0,  1.0),
-        vec2<f32>(-1.0,  1.0)
+    var output: VertexOutput;
+    // Original UVs range from 0 to 2, so we scale them to [0,1]
+    output.uv = vec2<f32>(
+        f32((vertex_index << 1u) & 2u),
+        f32(vertex_index & 2u)
     );
-    let pos = positions[vertex_index];
-    return VertexOutput(
-        vec4<f32>(pos.x, -pos.y, 0.0, 1.0),
-        (pos + vec2<f32>(1.0, 1.0)) * 0.5
-    );
+    // Convert the scaled UVs to clip space [-1,1]
+    output.position = vec4<f32>(output.uv * 2.0 - 1.0, 0.0, 1.0);
+    return output;
 }
 
-// Which cube face to sample for a point light, given the direction.
+fn calculate_world_position(texture_coordinate: vec2<f32>, depth: f32) -> vec3<f32> {
+    // For WebGPU the NDC z-range is already [0,1]; no remapping needed.
+    let z_ndc = depth;
+
+    // Convert texture UV to NDC space (-1 to 1 range)
+    let x_ndc = texture_coordinate.x * 2.0 - 1.0;
+    let y_ndc = (texture_coordinate.y * -2.0) + 1.0; // Flip Y for WebGPU NDC
+
+    // Construct clip-space position
+    let clip = vec4<f32>(x_ndc, y_ndc, z_ndc, 1.0);
+
+    // Transform from clip space to world space
+    let viewPos = global_data.inv_view_proj * clip;
+
+    // Perspective divide to obtain world-space coordinates
+    return viewPos.xyz / viewPos.w;
+}
+
 fn pick_point_light_face(direction: vec3<f32>) -> u32 {
     let ad = abs(direction);
-    if ad.x > ad.y && ad.x > ad.z {
-        if (direction.x < 0.0) { return 0u; } else { return 1u; };
-    } else if ad.y > ad.x && ad.y > ad.z {
-        if (direction.y < 0.0) { return 2u; } else { return 3u; };
+    if (ad.x >= ad.y && ad.x >= ad.z) {
+        // Invert the result for X axis
+        if (direction.x > 0.0) { return 1u; } else { return 0u; }
+    } else if (ad.y >= ad.x && ad.y >= ad.z) {
+        // Invert the result for Y axis
+        if (direction.y > 0.0) { return 3u; } else { return 2u; }
     } else {
-        if (direction.z < 0.0) { return 4u; } else { return 5u; };
+        // Invert the result for Z axis
+        if (direction.z > 0.0) { return 5u; } else { return 4u; }
     }
 }
+
 
 // Common function to compute shadow coordinates from world position.
 fn compute_shadow_coord(sd: ShadowData, world_pos: vec3<f32>, remapZ: bool) -> vec4<f32> {
@@ -118,31 +138,24 @@ fn compute_shadow_coord(sd: ShadowData, world_pos: vec3<f32>, remapZ: bool) -> v
     return coord;
 }
 
-/// Function to decompress depth from perspective projection.
-fn decompress_depth(depth: f32, near: f32, far: f32) -> f32 {
-    return (2.0 * near) / (far + near - depth * (far - near));
-}
-
 @fragment
-fn deferred_fs(input: VertexOutput) -> @location(0) vec4<f32> {
-    // Sample the G-buffer.
-    let albedo = textureSample(g_albedo, g_sampler, input.uv).rgb;
-    let normal_enc = textureSample(g_normal, g_sampler, input.uv).rgb;
-    let depth_val = textureSample(g_depth, g_sampler, input.uv);
-    let normal = normalize(normal_enc * 2.0 - vec3<f32>(1.0));
+fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    //var uv = input.position.xy / global_data.screen_size;
+    //uv.y = 1.0 - uv.y; // Flip Y for WebGPU
+    var uv = input.uv;
 
-    // Reconstruct world position.
-    let ndc = vec4<f32>(
-        (input.position.x / global_data.screen_size.x) * 2.0 - 1.0,
-        1.0 - (input.position.y / global_data.screen_size.y) * 2.0,
-        depth_val,
-        1.0
-    );
-    var world_pos = global_data.inv_view_proj * ndc;
-    world_pos /= world_pos.w;
+    // Sample G-buffer textures
+    let albedo = textureSample(g_albedo, g_sampler, uv).xyz;
+    let encodedNormal = textureSample(g_normal, g_sampler, uv).xyz;
 
-    // Calculate the real world units based on the depth
-    let depth_dist = length(world_pos.xyz - global_data.view_proj[3].xyz);
+    // Decode the normal from [0,1] to [-1,1]
+    let N_decoded = normalize(encodedNormal * 2.0 - 1.0);
+
+    // Sample non-linear depth from the depth buffer
+    let depthSample = textureSample(g_depth, g_sampler, uv);
+
+    // Compute world-space position
+    var world_pos = calculate_world_position(uv, depthSample);
 
     // Start with an ambient term.
     var final_color = albedo * 0.05;
@@ -155,7 +168,7 @@ fn deferred_fs(input: VertexOutput) -> @location(0) vec4<f32> {
         if (light.light_type == 0u) {
             // Directional light.
             let L = normalize(-light.rotation);
-            let NdotL = max(dot(normal, L), 0.0);
+            let NdotL = max(dot(N_decoded, L), 0.0);
             if (NdotL > 0.0) {
                 var diffuse = albedo * light.color * NdotL * light.intensity;
                 let sd = shadow_data[light.shadow_offset];
@@ -175,16 +188,16 @@ fn deferred_fs(input: VertexOutput) -> @location(0) vec4<f32> {
                 }
                 let shadow_factor = pcf_sum / 9.0;
                 diffuse *= shadow_factor;
-                //final_color += diffuse;
+                final_color += diffuse;
             }
         } else if (light.light_type == 1u) {
             var diffuse = vec3<f32>(0.0);
             let to_light = light.position - world_pos.xyz;
             let L = normalize(to_light);
-            let NdotL = max(dot(normal, L), 0.0);
+            let NdotL = max(dot(N_decoded, L), 0.0);
             let falloff = 1.0 - saturate(length(to_light) / light.range);
             if (NdotL > 0.0) {
-                diffuse = albedo * light.color * NdotL * light.intensity * falloff;
+                diffuse = albedo.xyz * light.color * NdotL * light.intensity * falloff;
 
                 // Point light.
                 if (length(to_light) > light.range) { continue; }
@@ -192,13 +205,11 @@ fn deferred_fs(input: VertexOutput) -> @location(0) vec4<f32> {
 
                 let face_index = pick_point_light_face(to_light);
                 let sd = shadow_data[light.shadow_offset + face_index];
-                // Compute vector from world position to the light
-                let to_light_norm = normalize(light.position - world_pos.xyz);
 
                 // Adjust shadow coord to be in the light's view space.
                 var pos = world_pos.xyz;
 
-                var shadow_coord = compute_shadow_coord(sd, pos, true);
+                var shadow_coord = compute_shadow_coord(sd, pos, false);
 
                 // Sample the shadow map.
                 let offsets = array<vec2<f32>, 9>(
@@ -220,7 +231,7 @@ fn deferred_fs(input: VertexOutput) -> @location(0) vec4<f32> {
         // Spot lights (light_type == 2) can be added similarly.
     }
 
-    //final_color = vec3(depth_dist);
-
-    return vec4<f32>(final_color, 1.0);
+    var output = vec4<f32>(final_color, 1.0);
+    //output = vec4<f32>(world_pos, 1.0);
+    return output;
 }

@@ -45,7 +45,7 @@ pub fn load_assets(
     let mesh = asset_manager.get_or_create_mesh("assets/capsule.obj");
     let texture = asset_manager.get_or_create_texture("capsule_tex", "assets/capsule0.jpg");
 
-    let box_mesh = asset_manager.get_or_create_mesh("assets/box.obj");
+    let box_mesh = asset_manager.get_or_create_mesh("assets/cube.obj");
     let white_texture = asset_manager.get_or_create_texture("white_tex", "assets/solid_white.png");
 
     // GBuffer setup.
@@ -167,7 +167,7 @@ pub fn add_entities(
         (&mut meshes, &mut materials, &mut transforms, &mut shadow_cast_component),
         (
             MeshComponent {
-                mesh: asset_manager.get_mesh_by_name("assets/box.obj").unwrap(),
+                mesh: asset_manager.get_mesh_by_name("assets/cube.obj").unwrap(),
             },
             MaterialComponent {
                 material: asset_manager.get_material_by_name("box_mat").unwrap(),
@@ -190,7 +190,7 @@ pub fn add_entities(
         (&mut meshes, &mut materials, &mut transforms, &mut shadow_cast_component),
         (
             MeshComponent {
-                mesh: asset_manager.get_mesh_by_name("assets/box.obj").unwrap(),
+                mesh: asset_manager.get_mesh_by_name("assets/cube.obj").unwrap(),
             },
             MaterialComponent {
                 material: asset_manager.get_material_by_name("box_mat").unwrap(),
@@ -322,7 +322,7 @@ pub fn add_entities(
                     proj * views[i],
                     shadow_map.read().unwrap().uv_offset,
                     shadow_map.read().unwrap().uv_scale,
-                    0.001,
+                    0.000005,
                 );
                 let shadow_map_component = ShadowMapComponent::new(shadow_data, shadow_map);
 
@@ -451,7 +451,7 @@ pub fn light_update_system(
 
                 let light_pos = light.position;
                 // Calculate the projection matrix
-                let proj = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.1, light.range);
+                let proj = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.01, light.range);
 
                 let views = [
                     // X+

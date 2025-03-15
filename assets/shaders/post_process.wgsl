@@ -46,14 +46,15 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     // Hard-coded positions for a full-screen triangle in OpenGL clip space.
     // For DirectX clip space we flip the y component.
     var positions = array<vec2<f32>, 3>(
-        vec2<f32>(-1.0, -3.0),
-        vec2<f32>( 3.0,  1.0),
-        vec2<f32>(-1.0,  1.0)
+        vec2<f32>(-1.0, 3.0),
+        vec2<f32>( 3.0,  -1.0),
+        vec2<f32>(-1.0,  -1.0)
     );
     let pos = positions[vertex_index];
     var output: VertexOutput;
     // Flip the y coordinate to adjust for DirectX clip space.
-    output.position = vec4<f32>(pos.x, -pos.y, 0.0, 1.0);
+    //output.position = vec4<f32>(pos.x, -pos.y, 0.0, 1.0);
+    output.position = vec4<f32>(pos.x, pos.y, 0.0, 1.0);
     // Compute UVs from the original positions.
     output.uv = (pos + vec2<f32>(1.0, 1.0)) * 0.5;
     return output;
