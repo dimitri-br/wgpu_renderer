@@ -97,9 +97,9 @@ fn compute_shadow_coord(sd: ShadowData, world_pos: vec3<f32>, remapZ: bool) -> v
         coord.z = coord.z * 0.5 + 0.5;
     }
     // Apply bias.
-        let depth_bias = sd.bias * (1.0 + abs(dot(normalize(world_pos - global_data.view_proj[3].xyz), normalize(world_pos))));
-        coord.z -= depth_bias;
-    //coord.z -= sd.bias;
+    //let depth_bias = decompress_depth(coord.z, 0.1, sd.light_view_proj[3].z);
+    //coord.z -= depth_bias;
+    coord.z -= sd.bias;
 
     // Adjust bias based on the slope of the surface.
     // This is a common technique to reduce shadow acne.
@@ -116,6 +116,11 @@ fn compute_shadow_coord(sd: ShadowData, world_pos: vec3<f32>, remapZ: bool) -> v
     coord.z = select(coord.z, -1.0, outside);
 
     return coord;
+}
+
+/// Function to decompress depth from perspective projection.
+fn decompress_depth(depth: f32, near: f32, far: f32) -> f32 {
+    return (2.0 * near) / (far + near - depth * (far - near));
 }
 
 @fragment
@@ -190,26 +195,35 @@ fn deferred_fs(input: VertexOutput) -> @location(0) vec4<f32> {
             // Compute vector from world position to the light
             let to_light_norm = normalize(light.position - world_pos.xyz);
 
-            // Compute a slope-based bias
-            let slope_bias = sd.bias * max(0.05, 1.0 - dot(normal, to_light_norm));
+            // Adjust for
+            var shadow_coord = compute_shadow_coord(sd, world_pos.xyz, true);
 
-            // Compute a depth-based bias (scales with distance)
-            let depth_factor = clamp(length(world_pos.xyz - light.position) * 0.0005, 0.0001, 0.01);
-
-            // Combine both biases
-            var total_bias = slope_bias + depth_factor;
-
-            // Apply bias **before projection**
-            var world_pos_offset = world_pos.xyz + normal * total_bias;
-            var shadow_coord = compute_shadow_coord(sd, world_pos_offset, true);
-
+            ///final_color = shadow_coord.xyz;
             // For point lights, remap Z from [-1,1] to [0,1].
             //var shadow_coord = compute_shadow_coord(sd, world_pos.xyz, true);
-            let stored_depth = textureSample(shadow_map, g_sampler, shadow_coord.xy);
-            var shadow_factor = select(1.0, 0.0, shadow_coord.z > stored_depth);
+            var stored_depth = textureSample(shadow_map, g_sampler, shadow_coord.xy);
+            // Convert the stored depth
+            stored_depth = decompress_depth(stored_depth, 1.0, light.range);
+
+            var depth_based_shadow_factor = select(1.0, 0.0, shadow_coord.z > stored_depth);
+
+            // Compare the stored depth to the distance of fragment to light.
+            // If the fragment is closer to the light, it is in shadow.
+            // Multiply stored depth by the range of the light to get the real distance.
+            var dist = length(to_light);
+            var shadow_dist = dist / light.range;
+            // Apply bias
+            shadow_dist += sd.bias;
+
+            // Compute the shadow factor.We do this by combining both the depth comparison
+            // method and the distance comparison method.
+            // The shadow factor is 1.0 if the fragment is in shadow, and 0.0 if it is not.
+            var dist_based_shadow_factor = select(1.0, 0.0, shadow_dist > stored_depth);
+            var shadow_factor = max(depth_based_shadow_factor, dist_based_shadow_factor);
 
             diffuse *= shadow_factor;
             final_color += diffuse;
+            //final_color = to_light_norm;
 
             //final_color = vec3<f32>(shadow_coord.z);
             }

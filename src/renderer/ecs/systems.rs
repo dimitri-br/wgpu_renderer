@@ -322,7 +322,7 @@ pub fn add_entities(
                     proj * views[i],
                     shadow_map.read().unwrap().uv_offset,
                     shadow_map.read().unwrap().uv_scale,
-                    0.0001,
+                    0.001,
                 );
                 let shadow_map_component = ShadowMapComponent::new(shadow_data, shadow_map);
 
@@ -451,7 +451,7 @@ pub fn light_update_system(
 
                 let light_pos = light.position;
                 // Calculate the projection matrix
-                let proj = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.1, light.range);
+                let proj = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 1.0, light.range);
 
                 let views = [
                     // X+
