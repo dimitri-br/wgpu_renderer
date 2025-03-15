@@ -297,7 +297,7 @@ pub fn add_entities(
             let mut light = Light::new(light_transform.translation(), rotation, color, intensity, range, LightType::Point);
 
             // These are point lights, so we need to allocate per axis
-            let shadow_map_resolution = 512; // 1024x1024 spread over 6 faces
+            let shadow_map_resolution = 1024; // 1024x1024 spread over 6 faces
             let proj = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.1, light.range);
             let views = [
                 // X+
