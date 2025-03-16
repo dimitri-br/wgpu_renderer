@@ -14,9 +14,6 @@ use crate::renderer::types::uniform::UniformBuffer;
 
 #[derive(Unique)]
 pub struct GlobalComponent{
-    pub light_storage: LightStorage,
-    pub shadow_data_storage: ShadowDataStorage,
-
     pub bind_group_cache: Arc<BindGroupCache>,
 
     pub global_data: Globals,
@@ -28,7 +25,7 @@ pub struct GlobalComponent{
 }
 
 impl GlobalComponent {
-    pub fn new(state: &State) -> Self{
+    pub fn new(state: &State, shadow_data_storage: &ShadowDataStorage, light_storage: &LightStorage) -> Self {
         let global_data = Globals::new();
 
 
@@ -73,11 +70,6 @@ impl GlobalComponent {
             ]
         }));
 
-
-
-        let light_storage = LightStorage::new(state.device.clone(), state.queue.clone());
-        let shadow_data_storage = ShadowDataStorage::new(state.device.clone(), state.queue.clone());
-
         let global_bind_group_key = BindGroupKey::new(&global_bind_group_layout, vec![Arc::as_ptr(&global_uniform_buffer) as usize]);
         let global_bind_group = state.bind_group_cache.get_or_create(&global_bind_group_layout, &[
             wgpu::BindGroupEntry {
@@ -95,9 +87,6 @@ impl GlobalComponent {
         ], global_bind_group_key.clone(), true);
 
         Self {
-            light_storage,
-            shadow_data_storage,
-
             bind_group_cache: state.bind_group_cache.clone(),
             global_data,
             global_uniform_buffer,
@@ -107,7 +96,7 @@ impl GlobalComponent {
         }
     }
 
-    pub fn reconstruct_bind_group(&mut self){
+    pub fn reconstruct_bind_group(&mut self, light_storage: &LightStorage, shadow_data_storage: &ShadowDataStorage){
         self.global_bind_group = self.bind_group_cache.get_or_create(&self.global_bind_group_layout, &[
             wgpu::BindGroupEntry {
                 binding: 0,
@@ -115,11 +104,11 @@ impl GlobalComponent {
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::Buffer(self.light_storage.storage.get_buffer_binding()),
+                resource: wgpu::BindingResource::Buffer(light_storage.storage.get_buffer_binding()),
             },
             wgpu::BindGroupEntry{
                 binding: 2,
-                resource: wgpu::BindingResource::Buffer(self.shadow_data_storage.storage.get_buffer_binding()),
+                resource: wgpu::BindingResource::Buffer(shadow_data_storage.storage.get_buffer_binding()),
             }
         ], self.global_bind_group_key.clone(), false);
     }

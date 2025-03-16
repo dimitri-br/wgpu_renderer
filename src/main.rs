@@ -12,6 +12,7 @@ use renderer::ecs::systems::{add_entities, handle_keyboard_input, handle_mouse_i
 use renderer::ecs::global_component::GlobalComponent;
 use crate::renderer::auto_mipmapper::AutoMipmapper;
 use crate::renderer::ecs::camera_component::CameraComponent;
+use crate::renderer::ecs::light_manager::LightManager;
 use crate::renderer::ecs::systems::{light_update_system, render_graph_system};
 use crate::renderer::shadow_atlas::ShadowAtlas;
 use crate::renderer::types::fps_camera::FpsCamera;
@@ -40,7 +41,8 @@ fn main() {
     );
     let auto_mipmapper = AutoMipmapper::new(state.device.clone(), wgpu::TextureFormat::Rgba8UnormSrgb);
     let shadow_atlas = ShadowAtlas::new(&state.device.clone(), &state.queue.clone(), 2048*4, 2048*4, wgpu::TextureFormat::Depth32Float);
-    let global_component = GlobalComponent::new(&state);
+    let light_manager = LightManager::new(state.device.clone(), state.queue.clone());
+    let global_component = GlobalComponent::new(&state, &light_manager.shadow_data_storage, &light_manager.light_storage);
 
     let camera_component: CameraComponent = FpsCamera::new(
         glam::vec3(0.0, 0.0, -3.0),
@@ -56,6 +58,7 @@ fn main() {
     world.add_unique(asset_manager);
     world.add_unique(auto_mipmapper);
     world.add_unique(shadow_atlas);
+    world.add_unique(light_manager);
     world.add_unique(global_component);
     world.add_unique(camera_component);
 

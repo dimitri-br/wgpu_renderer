@@ -2,6 +2,7 @@
 
 use std::ops::Deref;
 use std::sync::Arc;
+
 use glam::{vec3, vec4, Vec4Swizzles};
 use log::{error, info, warn};
 use rand::random;
@@ -15,11 +16,13 @@ use wgpu::{
 use winit::event::KeyEvent;
 use winit::keyboard::{KeyCode, PhysicalKey};
 
-use crate::renderer::ecs::components::*;
+use crate::renderer::asset_manager::AssetManager;
 use crate::renderer::ecs::camera_component::CameraComponent;
 use crate::renderer::ecs::global_component::GlobalComponent;
+use crate::renderer::ecs::light_manager::LightManager;
 use crate::renderer::ecs::render_graphics_view::RenderGraphicsViewMut;
-use crate::renderer::asset_manager::AssetManager;
+use crate::renderer::ecs::components::*;
+use crate::renderer::ecs::light_update_view::LightUpdateViewMut;
 use crate::renderer::render_graph::{RenderGraph, RenderGraphContext, RenderGraphNode};
 use crate::renderer::shadow_atlas::ShadowAtlas;
 use crate::renderer::shadow_data_storage::ShadowDataStorage;
@@ -33,8 +36,7 @@ use crate::renderer::types::shadow_data::ShadowData;
 use crate::renderer::types::transform::Transform;
 use crate::renderer::types::uniform::{Uniform, UniformBuffer};
 
-/// Loads assets (meshes, textures, shaders, materials, and screen textures)
-/// into the asset manager.
+/// Loads assets (meshes, textures, shaders, materials, and screen textures) into the asset manager.
 pub fn load_assets(
     mut state: UniqueViewMut<State>,
     mut asset_manager: UniqueViewMut<AssetManager>,
@@ -50,24 +52,30 @@ pub fn load_assets(
     // GBuffer setup.
     let screen_size = state.get_screen_size();
     let albedo_texture = asset_manager.get_or_create_screen_texture(
-        "albedo_texture", screen_size, wgpu::TextureFormat::Rgba16Float,
+        "albedo_texture",
+        screen_size,
+        wgpu::TextureFormat::Rgba16Float,
     );
     let normal_texture = asset_manager.get_or_create_screen_texture(
-        "normal_texture", screen_size, wgpu::TextureFormat::Rgba16Float,
+        "normal_texture",
+        screen_size,
+        wgpu::TextureFormat::Rgba16Float,
     );
     let depth_texture = asset_manager.get_or_create_screen_texture(
-        "depth_texture", screen_size, wgpu::TextureFormat::Depth32Float,
+        "depth_texture",
+        screen_size,
+        wgpu::TextureFormat::Depth32Float,
     );
     let output_texture = asset_manager.get_or_create_screen_texture(
-        "output_texture", screen_size, wgpu::TextureFormat::Rgba16Float,
+        "output_texture",
+        screen_size,
+        wgpu::TextureFormat::Rgba16Float,
     );
 
     // Generate mipmaps for the texture.
-    let mut encoder = state
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Texture Mipmapping Encoder"),
-        });
+    let mut encoder = state.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Texture Mipmapping Encoder"),
+    });
     auto_mipmapper.generate_mipmaps(&mut encoder, &[texture.clone()], &[texture.mip_level_count]);
     state.queue.submit(std::iter::once(encoder.finish()));
 
@@ -93,7 +101,7 @@ pub fn load_assets(
 
     // Create materials using a helper.
     create_material_with(&mut asset_manager, "capsule_mat", "main", |material| {
-        material.set_cull_mode(Some(wgpu::Face::Back));
+        material.set_cull_mode(None);
         material.set_depth(true);
         material.set_transparent(false);
         material.set_texture("color_texture", texture.view.clone());
@@ -101,7 +109,7 @@ pub fn load_assets(
     });
 
     create_material_with(&mut asset_manager, "box_mat", "main", |material| {
-        material.set_cull_mode(Some(wgpu::Face::Back));
+        material.set_cull_mode(None);
         material.set_depth(true);
         material.set_transparent(false);
         material.set_texture("color_texture", white_texture.view.clone());
@@ -133,6 +141,7 @@ pub fn load_assets(
     });
 }
 
+/// Helper to create materials.
 fn create_material_with<F>(
     asset_manager: &mut AssetManager,
     name: &str,
@@ -158,6 +167,7 @@ pub fn add_entities(
     mut transforms: ViewMut<TransformComponent>,
     mut shadow_cast_component: ViewMut<ShadowCastComponent>,
     mut lights: ViewMut<LightComponent>,
+    mut light_manager: UniqueViewMut<LightManager>,
 ) {
     // Ground entity.
     entities.add_entity(
@@ -213,22 +223,17 @@ pub fn add_entities(
             let material_component = MaterialComponent {
                 material: asset_manager.get_material_by_name("capsule_mat").unwrap(),
             };
-
             let mut transform = Transform::new();
-            // Randomize position.
             let x: f32 = random::<f32>() * 30.0 - 15.0;
             let z: f32 = random::<f32>() * 30.0 - 15.0;
             transform.translate(vec3(x * 2.0 - 10.0, 0.0, z * 2.0 - 10.0));
-            // Random rotation.
             transform.rotate(glam::Quat::from_euler(
                 glam::EulerRot::YXZ,
                 random::<f32>() * 360.0,
                 random::<f32>() * 360.0,
                 random::<f32>() * 360.0,
             ));
-            // Scale.
             transform.scale(vec3(0.5, 0.5, 0.5));
-
             (
                 mesh_component,
                 material_component,
@@ -238,149 +243,66 @@ pub fn add_entities(
         }),
     );
 
-    // Directional light entity.
-    let directional_shadow_map = shadow_atlas.allocate_tile(2048, 2048).unwrap();
-    let directional_shadow_data = ShadowData::new(
-        glam::Mat4::IDENTITY,
-        directional_shadow_map.read().unwrap().uv_offset,
-        directional_shadow_map.read().unwrap().uv_scale,
-        0.0015,
-    );
-
-    let mut directional_light = LightComponent::new(
-        Light::new(
-            vec3(0.0, 5.0, 0.0),
-            vec3(0.5, -1.0, 0.0),
-            vec3(1.0, 1.0, 1.0),
-            0.5,
-            100.0,
-            0.0,
-            LightType::Directional,
-        ),
-        LightType::Directional,
-    );
-
-    let transform = TransformComponent { transform: Transform::new() };
-    let smc = ShadowMapComponent::new(directional_shadow_data, directional_shadow_map);
-    let idx = global_component.shadow_data_storage.add_shadow_data(smc);
-    directional_light.light.set_shadow_data(idx as u32, 1);
-
-    entities.add_entity((&mut lights, &mut transforms), (directional_light, transform));
-
-    // Point light entities.
-    entities.bulk_add_entity(
+    // Create a directional light using the manager.
+    let dir_light = light_manager.create_directional_light(&mut shadow_atlas);
+    let dir_light_component = LightComponent::new(dir_light, LightType::Directional);
+    entities.add_entity(
         (&mut lights, &mut transforms),
-        (0..4).map(|_| {
-            let mut light_transform = Transform::new();
-            light_transform.translate(vec3(
-                random::<f32>() * 25.0 - 12.5,
-                10.0,
-                random::<f32>() * 25.0 - 12.5,
-            ));
-            let color = match random::<u8>() % 3 {
-                0 => vec3(1.0, 0.0, 0.0),
-                1 => vec3(0.0, 1.0, 0.0),
-                _ => vec3(0.0, 0.0, 1.0),
-            };
-            let intensity = random::<f32>() * 5.0 + 2.5;
-            let range = 15.0;
-            let rotation = vec3(0.0, 0.0, 0.0);
-            let mut point_light = Light::new(
-                light_transform.translation(),
-                rotation,
-                color,
-                intensity,
-                range,
-                0.0,
-                LightType::Point,
-            );
-
-            let shadow_map_resolution = 1024;
-            let proj = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.1, point_light.range);
-            let views = [
-                glam::Mat4::look_at_rh(light_transform.translation(), light_transform.translation() + vec3(1.0, 0.0, 0.0), vec3(0.0, -1.0, 0.0)),
-                glam::Mat4::look_at_rh(light_transform.translation(), light_transform.translation() + vec3(-1.0, 0.0, 0.0), vec3(0.0, -1.0, 0.0)),
-                glam::Mat4::look_at_rh(light_transform.translation(), light_transform.translation() + vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0)),
-                glam::Mat4::look_at_rh(light_transform.translation(), light_transform.translation() + vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, -1.0)),
-                glam::Mat4::look_at_rh(light_transform.translation(), light_transform.translation() + vec3(0.0, 0.0, 1.0), vec3(0.0, -1.0, 0.0)),
-                glam::Mat4::look_at_rh(light_transform.translation(), light_transform.translation() + vec3(0.0, 0.0, -1.0), vec3(0.0, -1.0, 0.0)),
-            ];
-            let mut start_index: u32 = 0;
-            for i in 0..6 {
-                let shadow_map = shadow_atlas.allocate_tile(shadow_map_resolution, shadow_map_resolution).unwrap();
-                let shadow_data = ShadowData::new(
-                    proj * views[i],
-                    shadow_map.read().unwrap().uv_offset,
-                    shadow_map.read().unwrap().uv_scale,
-                    0.000005,
-                );
-                let shadow_map_component = ShadowMapComponent::new(shadow_data, shadow_map);
-                let idx = global_component.shadow_data_storage.add_shadow_data(shadow_map_component);
-                if i == 0 {
-                    start_index = idx as u32;
-                    println!("Start index: {}", start_index);
-                }
-            }
-            point_light.set_shadow_data(start_index, 6);
-
-            (
-                LightComponent::new(point_light, LightType::Point),
-                TransformComponent { transform: light_transform },
-            )
-        }),
+        (dir_light_component, TransformComponent { transform: Transform::new() }),
     );
 
-    // Spotlight entity.
-    {
-        let mut spotlight_transform = Transform::new();
-        spotlight_transform.translate(vec3(-8.0, 2.0, 0.0));
-        let spotlight_color = vec3(1.0, 1.0, 0.8);
-        let spotlight_intensity = 2.0;
-        let spotlight_range = 40.0;
-        let spotlight_angle = std::f32::consts::FRAC_PI_6; // 30° half-angle
-        let mut spotlight = Light::new(
-            spotlight_transform.translation(),
-            vec3(0.5, -0.2, 0.0),
-            spotlight_color,
-            spotlight_intensity,
-            spotlight_range,
-            spotlight_angle,
-            LightType::Spot,
+    // Create point lights.
+    for _ in 0..4 {
+        let position = vec3(
+            random::<f32>() * 25.0 - 12.5,
+            10.0,
+            random::<f32>() * 25.0 - 12.5,
         );
-
-        let shadow_map_resolution = 512;
-        let proj = glam::Mat4::perspective_rh(spotlight_angle * 2.0, 1.0, 0.01, spotlight_range);
-        let view = glam::Mat4::look_at_rh(spotlight_transform.translation(), spotlight_transform.translation() + vec3(0.0, -1.0, 0.0), glam::Vec3::Y);
-        let tile = shadow_atlas.allocate_tile(shadow_map_resolution, shadow_map_resolution).unwrap();
-
-        let spotlight_shadow_data = ShadowData::new(
-            proj * view,
-            {
-                tile.read().unwrap().uv_offset
-            },
-            {
-                tile.read().unwrap().uv_scale
-            },
-            0.000005,
-        );
-        // Allocate one tile for spotlight shadow.
-        let shadow_map_component = ShadowMapComponent::new(spotlight_shadow_data, tile);
-        let idx = global_component.shadow_data_storage.add_shadow_data(shadow_map_component);
-        spotlight.set_shadow_data(idx as u32, 1);
-
-        let spotlight_component = LightComponent::new(spotlight, LightType::Spot);
-        let transform_component = TransformComponent { transform: spotlight_transform };
-        entities.add_entity((&mut lights, &mut transforms), (spotlight_component, transform_component));
+        let color = match random::<u8>() % 3 {
+            0 => vec3(1.0, 0.0, 0.0),
+            1 => vec3(0.0, 1.0, 0.0),
+            _ => vec3(0.0, 0.0, 1.0),
+        };
+        let intensity = random::<f32>() * 5.0 + 2.5;
+        let range = 15.0;
+        let point_light = light_manager.create_point_light(position, color, intensity, range, &mut shadow_atlas);
+        let point_light_component = LightComponent::new(point_light, LightType::Point);
+        let transform_component = TransformComponent { transform: Transform::new() };
+        entities.add_entity((&mut lights, &mut transforms), (point_light_component, transform_component));
     }
+
+    // Create a spotlight.
+    let spot_position = vec3(-8.0, 2.0, 0.0);
+    let spot_direction = vec3(0.5, -0.2, 0.0);
+    let spot_color = vec3(1.0, 1.0, 0.8);
+    let spot_intensity = 2.0;
+    let spot_range = 40.0;
+    let spot_angle = std::f32::consts::FRAC_PI_6;
+    let spot_light = light_manager.create_spot_light(spot_position, spot_direction, spot_color, spot_intensity, spot_range, spot_angle, &mut shadow_atlas);
+    let spot_light_component = LightComponent::new(spot_light, LightType::Spot);
+    let spot_transform = TransformComponent {
+        transform: {
+            let mut t = Transform::new();
+            t.translate(spot_position);
+            t
+        },
+    };
+    entities.add_entity((&mut lights, &mut transforms), (spot_light_component, spot_transform));
 }
 
 /// Handles keyboard input for the camera.
-pub fn handle_keyboard_input(key_event: KeyEvent, mut camera_component: UniqueViewMut<CameraComponent>) {
+pub fn handle_keyboard_input(
+    key_event: KeyEvent,
+    mut camera_component: UniqueViewMut<CameraComponent>,
+) {
     camera_component.camera.process_keyboard(key_event);
 }
 
 /// Handles mouse input for the camera.
-pub fn handle_mouse_input(delta: (f64, f64), mut camera_component: UniqueViewMut<CameraComponent>) {
+pub fn handle_mouse_input(
+    delta: (f64, f64),
+    mut camera_component: UniqueViewMut<CameraComponent>,
+) {
     camera_component.camera.process_mouse(delta.0 as f32, delta.1 as f32);
 }
 
@@ -397,13 +319,11 @@ pub fn resize_system(
     camera_component.camera.resize(width as f32, height as f32);
     global_component.global_data.update_screen_size(width as f32, height as f32);
 
-    // Replace screen textures.
     asset_manager.replace_screen_texture("output_texture", (width, height), TextureFormat::Rgba16Float, false);
     asset_manager.replace_screen_texture("albedo_texture", (width, height), TextureFormat::Rgba16Float, false);
     asset_manager.replace_screen_texture("normal_texture", (width, height), TextureFormat::Rgba16Float, false);
     asset_manager.replace_screen_texture("depth_texture", (width, height), TextureFormat::Depth32Float, false);
 
-    // Update GBuffer and post-processing materials.
     let gbuffer_material = asset_manager.get_material_by_name("gbuffer_mat").unwrap();
     let albedo_tex = asset_manager.get_texture_by_name("albedo_texture").unwrap();
     let normal_tex = asset_manager.get_texture_by_name("normal_texture").unwrap();
@@ -435,118 +355,23 @@ pub fn update_system(
     global_component.global_uniform_buffer.update(&global_component.global_data);
 }
 
-/// Updates light data from light components.
 pub fn light_update_system(
-    mut global_component: UniqueViewMut<GlobalComponent>,
-    mut lights: ViewMut<LightComponent>,
-    camera: UniqueView<CameraComponent>,
+    mut light_update: LightUpdateViewMut,
+    mut lights: shipyard::ViewMut<LightComponent>,
 ) {
-    let mut light_data: Vec<Light> = Vec::new();
-    (&mut lights).iter().for_each(|light_comp| {
-        let light_type = LightType::from_u32(light_comp.light_type);
-        match light_type {
-            LightType::Directional => {
-                let light = &mut light_comp.light;
-                let camera_pos = camera.camera.position();
-                let light_dir = -light.rotation.normalize();
-                let scene_center = camera_pos;
-                let light_distance = -50.0;
-                let light_pos = scene_center - light_dir * light_distance;
-                let light_view = glam::Mat4::look_at_rh(light_pos, scene_center, glam::Vec3::Y);
-                let left = -30.0;
-                let right = 30.0;
-                let bottom = -30.0;
-                let top = 30.0;
-                let near = 0.1;
-                let far = 100.0;
-                let proj = glam::Mat4::orthographic_rh(left, right, bottom, top, near, far);
-                let mut light_view_proj = proj * light_view;
+    // Collect all lights into a contiguous vector.
+    let mut light_data: Vec<Light> = lights.iter().map(|lc| lc.light.clone()).collect();
 
-                // Shadow snapping.
-                let camera_pos_ls = light_view * vec4(camera_pos.x, camera_pos.y, camera_pos.z, 1.0);
-                let ortho_width = right - left;
-                let shadow_resolution = 2048.0;
-                let texel_size = ortho_width / shadow_resolution;
-                let snapped_x = (camera_pos_ls.x / texel_size).round() * texel_size;
-                let snapped_y = (camera_pos_ls.y / texel_size).round() * texel_size;
-                let snap_offset = glam::Mat4::from_translation(vec3(
-                    snapped_x - camera_pos_ls.x,
-                    snapped_y - camera_pos_ls.y,
-                    0.0,
-                ));
-                light_view_proj = snap_offset * light_view_proj;
+    // Use the custom view to update all lights in batch.
+    light_update.light_manager.update_lights(&mut light_data, &light_update.camera_component.camera);
 
-                for i in 0..light.shadow_data_count {
-                    if let Some(mut shadow_map_data) = global_component
-                        .shadow_data_storage
-                        .get_shadow_data((light.shadow_data_offset + i) as usize)
-                    {
-                        shadow_map_data.shadow_data.light_view_proj = light_view_proj;
-                        global_component
-                            .shadow_data_storage
-                            .set_shadow_data((light.shadow_data_offset + i) as usize, shadow_map_data)
-                            .unwrap();
-                    }
-                }
-                light.view_proj = light_view_proj;
-            },
-            LightType::Point => {
-                let light = &mut light_comp.light;
-                let light_pos = light.position;
-                let proj = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.01, light.range);
-                let views = [
-                    glam::Mat4::look_at_rh(light_pos, light_pos + vec3(1.0, 0.0, 0.0), vec3(0.0, -1.0, 0.0)),
-                    glam::Mat4::look_at_rh(light_pos, light_pos + vec3(-1.0, 0.0, 0.0), vec3(0.0, -1.0, 0.0)),
-                    glam::Mat4::look_at_rh(light_pos, light_pos + vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0)),
-                    glam::Mat4::look_at_rh(light_pos, light_pos + vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, -1.0)),
-                    glam::Mat4::look_at_rh(light_pos, light_pos + vec3(0.0, 0.0, 1.0), vec3(0.0, -1.0, 0.0)),
-                    glam::Mat4::look_at_rh(light_pos, light_pos + vec3(0.0, 0.0, -1.0), vec3(0.0, -1.0, 0.0)),
-                ];
-                for i in 0..light.shadow_data_count {
-                    if let Some(mut shadow_map_data) = global_component.shadow_data_storage.get_shadow_data(light.shadow_data_offset as usize + i as usize) {
-                        let view_proj = proj * views[i as usize];
-                        shadow_map_data.shadow_data.light_view_proj = view_proj;
-                        global_component.shadow_data_storage.set_shadow_data(light.shadow_data_offset as usize + i as usize, shadow_map_data).unwrap();
-                    }
-                }
-                light.view_proj = glam::Mat4::IDENTITY;
-            },
-            LightType::Spot => {
-                // Spotlight shadow mapping.
-                let light = &mut light_comp.light;
-                let light_pos = light.position;
-                let light_dir = light.rotation.normalize();
-                let fov = if light.spot_angle > 0.0 { light.spot_angle * 2.0 } else { std::f32::consts::FRAC_PI_4 };
-                let aspect = 1.0;
-                let near = 0.01;
-                let far = light.range;
-                let proj = glam::Mat4::perspective_rh(fov, aspect, near, far);
-                let view = glam::Mat4::look_at_rh(light_pos, light_pos + light_dir, glam::Vec3::Y);
-                let view_proj = proj * view;
-                for i in 0..light.shadow_data_count {
-                    if let Some(mut shadow_map_data) = global_component
-                        .shadow_data_storage
-                        .get_shadow_data((light.shadow_data_offset + i) as usize)
-                    {
-                        shadow_map_data.shadow_data.light_view_proj = view_proj;
-                        global_component
-                            .shadow_data_storage
-                            .set_shadow_data((light.shadow_data_offset + i) as usize, shadow_map_data)
-                            .unwrap();
-                    }
-                }
-                light.view_proj = view_proj;
-            },
-            _ => {}
-        }
-        light_data.push(light_comp.light.clone());
-    });
-    global_component.light_storage.set_all_lights(light_data);
-    global_component.light_storage.update();
-    global_component.shadow_data_storage.update();
+    // Write back the updated light data to each LightComponent.
+    for (mut light_comp, updated_light) in (&mut lights).iter().zip(light_data.into_iter()) {
+        light_comp.light = updated_light;
+    }
 }
 
-/// Helper function to create a RenderPassColorAttachment with a clear color.
+/// Helper to create a RenderPassColorAttachment with a clear color.
 fn generate_color_attachment(view: &wgpu::TextureView) -> RenderPassColorAttachment {
     RenderPassColorAttachment {
         view,
@@ -650,26 +475,45 @@ pub fn render_graph_system(
                     occlusion_query_set: None,
                 });
                 pass.set_pipeline(&shadow_material.get_pipeline());
-                let shadow_data = graphics.global_component.shadow_data_storage.get_all_shadow_data();
-                let light_data = graphics.global_component.light_storage.get_all_lights();
-                for (light_idx, light) in light_data.iter().enumerate() {
+                // Fetch updated light/shadow data from the LightManager.
+                let shadow_data = graphics.light_manager.shadow_data_storage.get_all_shadow_data();
+                let light_data = graphics.light_manager.light_storage.get_all_lights();
+                for light in light_data.iter() {
                     for i in 0..light.shadow_data_count {
                         let offset = light.shadow_data_offset as usize + i as usize;
                         let smc = &shadow_data[offset];
                         let rect = smc.tile.read().unwrap().rect;
-                        pass.set_viewport(rect.x as f32, rect.y as f32, rect.width as f32, rect.height as f32, 0.0, 1.0);
-                        pass.set_scissor_rect(rect.x as u32, rect.y as u32, rect.width as u32, rect.height as u32);
+                        pass.set_viewport(
+                            rect.x as f32,
+                            rect.y as f32,
+                            rect.width as f32,
+                            rect.height as f32,
+                            0.0,
+                            1.0,
+                        );
+                        pass.set_scissor_rect(
+                            rect.x as u32,
+                            rect.y as u32,
+                            rect.width as u32,
+                            rect.height as u32,
+                        );
                         pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
-                        (&mesh_comps, &transform_comps, &shadow_cast_component).iter().for_each(|(mesh_comp, transform_comp, shadow_caster)| {
-                            if shadow_caster.shadow_cast {
-                                let model_matrix = [transform_comp.transform.matrix];
-                                let mut push_data = Vec::with_capacity(32);
-                                push_data.extend_from_slice(bytemuck::bytes_of(&model_matrix));
-                                push_data.extend_from_slice(bytemuck::bytes_of(&smc.shadow_data.light_view_proj));
-                                pass.set_push_constants(wgpu::ShaderStages::VERTEX_FRAGMENT, 0, &push_data);
-                                mesh_comp.mesh.draw(&mut pass);
-                            }
-                        });
+                        (&mesh_comps, &transform_comps, &shadow_cast_component)
+                            .iter()
+                            .for_each(|(mesh_comp, transform_comp, shadow_caster)| {
+                                if shadow_caster.shadow_cast {
+                                    let model_matrix = [transform_comp.transform.matrix];
+                                    let mut push_data = Vec::with_capacity(32);
+                                    push_data.extend_from_slice(bytemuck::bytes_of(&model_matrix));
+                                    push_data.extend_from_slice(bytemuck::bytes_of(&smc.shadow_data.light_view_proj));
+                                    pass.set_push_constants(
+                                        wgpu::ShaderStages::VERTEX_FRAGMENT,
+                                        0,
+                                        &push_data,
+                                    );
+                                    mesh_comp.mesh.draw(&mut pass);
+                                }
+                            });
                     }
                 }
             }
