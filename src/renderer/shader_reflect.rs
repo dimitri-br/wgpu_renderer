@@ -757,7 +757,7 @@ impl Shader {
         match (size, scalar.kind) {
             // Example mapping: a float vector maps to a specific texture format.
             (VectorSize::Bi | VectorSize::Tri | VectorSize::Quad, ScalarKind::Float) => {
-                Ok(TextureFormat::Bgra8UnormSrgb)
+                Ok(TextureFormat::Rgba16Float)
             }
             // Extend this mapping based on your shader's output requirements.
             _ => {

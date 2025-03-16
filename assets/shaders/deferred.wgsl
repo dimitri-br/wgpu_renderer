@@ -141,9 +141,8 @@ fn compute_shadow_coord(sd: ShadowData, world_pos: vec3<f32>, remapZ: bool) -> v
 
 @fragment
 fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    //var uv = input.position.xy / global_data.screen_size;
-    //uv.y = 1.0 - uv.y; // Flip Y for WebGPU
-    var uv = input.uv;
+    var uv = input.position.xy / global_data.screen_size;
+    uv.y = 1.0 - uv.y; // Flip Y for WebGPU
 
     // Sample G-buffer textures
     let albedo = textureSample(g_albedo, g_sampler, uv).xyz;
@@ -190,7 +189,7 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
                 }
                 let shadow_factor = pcf_sum / 9.0;
                 diffuse *= shadow_factor;
-                //final_color += diffuse;
+                final_color += diffuse;
             }
         } else if (light.light_type == 1u) {
             var diffuse = vec3<f32>(0.0);
@@ -227,7 +226,7 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
                 }
                 let shadow_factor = pcf_sum / 9.0;
                 diffuse *= shadow_factor;
-                //final_color += diffuse;
+                final_color += diffuse;
             }
         }
         // Spot light.

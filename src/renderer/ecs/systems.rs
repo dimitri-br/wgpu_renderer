@@ -50,16 +50,16 @@ pub fn load_assets(
     // GBuffer setup.
     let screen_size = state.get_screen_size();
     let albedo_texture = asset_manager.get_or_create_screen_texture(
-        "albedo_texture", screen_size, wgpu::TextureFormat::Bgra8UnormSrgb,
+        "albedo_texture", screen_size, wgpu::TextureFormat::Rgba16Float,
     );
     let normal_texture = asset_manager.get_or_create_screen_texture(
-        "normal_texture", screen_size, wgpu::TextureFormat::Bgra8UnormSrgb,
+        "normal_texture", screen_size, wgpu::TextureFormat::Rgba16Float,
     );
     let depth_texture = asset_manager.get_or_create_screen_texture(
         "depth_texture", screen_size, wgpu::TextureFormat::Depth32Float,
     );
     let output_texture = asset_manager.get_or_create_screen_texture(
-        "output_texture", screen_size, wgpu::TextureFormat::Bgra8UnormSrgb,
+        "output_texture", screen_size, wgpu::TextureFormat::Rgba16Float,
     );
 
     // Generate mipmaps for the texture.
@@ -206,7 +206,7 @@ pub fn add_entities(
     // Spawn many renderable entities.
     entities.bulk_add_entity(
         (&mut meshes, &mut materials, &mut transforms, &mut shadow_cast_component),
-        (0..150).map(|_| {
+        (0..40).map(|_| {
             let mesh_component = MeshComponent {
                 mesh: asset_manager.get_mesh_by_name("assets/capsule.obj").unwrap(),
             };
@@ -270,7 +270,7 @@ pub fn add_entities(
     // Point light entities.
     entities.bulk_add_entity(
         (&mut lights, &mut transforms),
-        (0..0).map(|_| {
+        (0..4).map(|_| {
             let mut light_transform = Transform::new();
             light_transform.translate(vec3(
                 random::<f32>() * 25.0 - 12.5,
@@ -333,14 +333,14 @@ pub fn add_entities(
     // Spotlight entity.
     {
         let mut spotlight_transform = Transform::new();
-        spotlight_transform.translate(vec3(5.0, 5.0, 0.0));
+        spotlight_transform.translate(vec3(-8.0, 2.0, 0.0));
         let spotlight_color = vec3(1.0, 1.0, 0.8);
-        let spotlight_intensity = 5.0;
-        let spotlight_range = 12.0;
+        let spotlight_intensity = 2.0;
+        let spotlight_range = 40.0;
         let spotlight_angle = std::f32::consts::FRAC_PI_6; // 30° half-angle
         let mut spotlight = Light::new(
             spotlight_transform.translation(),
-            vec3(0.5, -0.5, 0.0),
+            vec3(0.5, -0.2, 0.0),
             spotlight_color,
             spotlight_intensity,
             spotlight_range,
@@ -348,24 +348,23 @@ pub fn add_entities(
             LightType::Spot,
         );
 
-        let shadow_map_resolution = 1024;
+        let shadow_map_resolution = 512;
         let proj = glam::Mat4::perspective_rh(spotlight_angle * 2.0, 1.0, 0.01, spotlight_range);
         let view = glam::Mat4::look_at_rh(spotlight_transform.translation(), spotlight_transform.translation() + vec3(0.0, -1.0, 0.0), glam::Vec3::Y);
+        let tile = shadow_atlas.allocate_tile(shadow_map_resolution, shadow_map_resolution).unwrap();
+
         let spotlight_shadow_data = ShadowData::new(
             proj * view,
             {
-                let tile = shadow_atlas.allocate_tile(shadow_map_resolution, shadow_map_resolution).unwrap();
                 tile.read().unwrap().uv_offset
             },
             {
-                let tile = shadow_atlas.allocate_tile(shadow_map_resolution, shadow_map_resolution).unwrap();
                 tile.read().unwrap().uv_scale
             },
             0.000005,
         );
         // Allocate one tile for spotlight shadow.
-        let shadow_tile = shadow_atlas.allocate_tile(shadow_map_resolution, shadow_map_resolution).unwrap();
-        let shadow_map_component = ShadowMapComponent::new(spotlight_shadow_data, shadow_tile);
+        let shadow_map_component = ShadowMapComponent::new(spotlight_shadow_data, tile);
         let idx = global_component.shadow_data_storage.add_shadow_data(shadow_map_component);
         spotlight.set_shadow_data(idx as u32, 1);
 
@@ -399,9 +398,9 @@ pub fn resize_system(
     global_component.global_data.update_screen_size(width as f32, height as f32);
 
     // Replace screen textures.
-    asset_manager.replace_screen_texture("output_texture", (width, height), TextureFormat::Bgra8UnormSrgb, false);
-    asset_manager.replace_screen_texture("albedo_texture", (width, height), TextureFormat::Bgra8UnormSrgb, false);
-    asset_manager.replace_screen_texture("normal_texture", (width, height), TextureFormat::Bgra8UnormSrgb, false);
+    asset_manager.replace_screen_texture("output_texture", (width, height), TextureFormat::Rgba16Float, false);
+    asset_manager.replace_screen_texture("albedo_texture", (width, height), TextureFormat::Rgba16Float, false);
+    asset_manager.replace_screen_texture("normal_texture", (width, height), TextureFormat::Rgba16Float, false);
     asset_manager.replace_screen_texture("depth_texture", (width, height), TextureFormat::Depth32Float, false);
 
     // Update GBuffer and post-processing materials.
