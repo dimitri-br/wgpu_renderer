@@ -1,22 +1,13 @@
-use crate::renderer::bind_group_cache::BindGroupKey;
-use crate::renderer::types::gpu_mesh::GpuMesh;
-use crate::renderer::types::mesh::Mesh;
-use crate::renderer::types::sampler::SamplerParameters;
-use crate::renderer::types::transform::Transform;
-use crate::renderer::types::uniform::UniformBuffer;
 use renderer::ecs::systems::load_assets;
 use renderer::State;
-use std::fs::read_to_string;
 use std::sync::Arc;
 use log::error;
 use shipyard::World;
-use wgpu::*;
 use winit::event::*;
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{CursorGrabMode, Window};
 use crate::renderer::asset_manager::AssetManager;
-use renderer::ecs::components::{MaterialComponent, MeshComponent, TransformComponent};
 use renderer::ecs::systems::{add_entities, handle_keyboard_input, handle_mouse_input, resize_system, update_system};
 use renderer::ecs::global_component::GlobalComponent;
 use crate::renderer::auto_mipmapper::AutoMipmapper;
@@ -24,7 +15,6 @@ use crate::renderer::ecs::camera_component::CameraComponent;
 use crate::renderer::ecs::systems::{light_update_system, render_graph_system};
 use crate::renderer::shadow_atlas::ShadowAtlas;
 use crate::renderer::types::fps_camera::FpsCamera;
-use crate::renderer::types::global::Globals;
 
 mod renderer;
 

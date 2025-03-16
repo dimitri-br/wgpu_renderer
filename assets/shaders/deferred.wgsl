@@ -15,6 +15,7 @@ struct Light {
     view_proj: mat4x4<f32>,
     shadow_offset: u32,
     shadow_count: u32,
+    spot_angle: f32,
 };
 
 struct ShadowData {
@@ -161,7 +162,8 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
     var final_color = albedo * 0.05;
 
     // Loop over lights.
-    for (var i = 0u; i < 4u; i = i + 1u) {
+    let light_count = arrayLength(&lights);
+    for (var i = 0u; i < light_count; i = i + 1u) {
         let light = lights[i];
         if (light.intensity <= 0.0) { continue; }
 
@@ -188,7 +190,7 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
                 }
                 let shadow_factor = pcf_sum / 9.0;
                 diffuse *= shadow_factor;
-                final_color += diffuse;
+                //final_color += diffuse;
             }
         } else if (light.light_type == 1u) {
             var diffuse = vec3<f32>(0.0);
@@ -225,10 +227,46 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
                 }
                 let shadow_factor = pcf_sum / 9.0;
                 diffuse *= shadow_factor;
+                //final_color += diffuse;
+            }
+        }
+        // Spot light.
+        else if (light.light_type == 2u) {
+            let to_light = light.position - world_pos.xyz;
+            let L = normalize(to_light);
+            let NdotL = max(dot(N_decoded, L), 0.0);
+            let falloff = 1.0 - saturate(length(to_light) / light.range);
+
+            // Compute spotlight effect.
+            // Assume spotlight direction is given by the normalized negative rotation.
+            let spot_dir = normalize(-light.rotation);
+            let cos_angle = dot(L, spot_dir);
+            let cutoff = cos(light.spot_angle); // cutoff cosine value.
+            if (NdotL > 0.0 && cos_angle > cutoff) {
+                // Smooth the edge of the spotlight.
+                let spot_factor = smoothstep(cutoff, cutoff + 0.1, cos_angle);
+                var diffuse = albedo * light.color * NdotL * light.intensity * falloff * spot_factor;
+
+                // Shadow mapping for spotlight.
+                let sd = shadow_data[light.shadow_offset];
+                var shadow_coord = compute_shadow_coord(sd, world_pos.xyz, false);
+
+                let offsets = array<vec2<f32>, 9>(
+                    vec2<f32>(-1.0, -1.0), vec2<f32>( 0.0, -1.0), vec2<f32>( 1.0, -1.0),
+                    vec2<f32>(-1.0,  0.0), vec2<f32>( 0.0,  0.0), vec2<f32>( 1.0,  0.0),
+                    vec2<f32>(-1.0,  1.0), vec2<f32>( 0.0,  1.0), vec2<f32>( 1.0,  1.0)
+                );
+                let kernel_radius = 0.0001;
+                var pcf_sum = 0.0;
+                for (var j = 0u; j < 9u; j = j + 1u) {
+                    let offset = offsets[j] * kernel_radius;
+                    pcf_sum += textureSampleCompare(shadow_map, shadow_sampler, shadow_coord.xy + offset, shadow_coord.z);
+                }
+                let shadow_factor = pcf_sum / 9.0;
+                diffuse *= shadow_factor;
                 final_color += diffuse;
             }
         }
-        // Spot lights (light_type == 2) can be added similarly.
     }
 
     var output = vec4<f32>(final_color, 1.0);

@@ -1,8 +1,6 @@
-use bytemuck::{Pod, Zeroable};
 use crate::renderer::types::camera::Camera;
 use crate::renderer::types::uniform::Uniform;
 use wgpu::{Buffer, Queue};
-use crate::renderer::ecs::components::LightComponent;
 
 /// Global data that is shared between all shaders (group=0).
 ///

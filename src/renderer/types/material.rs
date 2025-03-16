@@ -1,5 +1,5 @@
 use crate::renderer::bind_group_cache::{BindGroupCache, BindGroupKey};
-use log::{error, info, warn};
+use log::{error, warn};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::sync::atomic::AtomicBool;
