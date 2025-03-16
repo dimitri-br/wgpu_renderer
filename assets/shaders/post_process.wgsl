@@ -66,11 +66,17 @@ var u_texture: texture_2d<f32>;
 @group(1) @binding(1)
 var u_sampler: sampler;
 
+struct FragmentOutput {
+    @location(0) color_bgra8unorm_srgb: vec4<f32>,
+};
+
 @fragment
-fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+fn fs_main(@location(0) uv: vec2<f32>) -> FragmentOutput {
+    var frag_output: FragmentOutput;
     var color = fxaa_main(uv);
     tonemap_aces(color.rgb);
-    return color;
+    frag_output.color_bgra8unorm_srgb = vec4<f32>(color.rgb, 1.0);
+    return frag_output;
 }
 
 // -------------------

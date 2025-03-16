@@ -372,10 +372,12 @@ impl Shader {
         if let Some(fragment) = fragment {
             // Check if the fragment shader has a result type (i.e., color outputs).
             if let Some(output) = &fragment.function.result {
-                match &module.types[output.ty].inner {
+                let ty = &module.types[output.ty];
+                let name = ty.name.clone().unwrap_or("bgra8unorm".to_string());
+                match &ty.inner {
                     // Handle single vector outputs (e.g., vec4<f32>).
                     TypeInner::Vector { size, scalar, .. } => {
-                        let format = self.map_vector_to_texture_format(*size, scalar)?;
+                        let format = self.map_vector_to_texture_format(&name, *size, scalar)?;
                         color_targets.push(Some(ColorTargetState {
                             format,
                             blend: Some(wgpu::BlendState::REPLACE), // Default blend state.
@@ -385,10 +387,12 @@ impl Shader {
                     // Handle struct outputs (e.g., multiple color outputs).
                     TypeInner::Struct { members, .. } => {
                         for member in members {
+                            let ty =  &module.types[member.ty];
+                            let name = member.name.clone().unwrap_or("bgra8unorm".to_string());
                             if let TypeInner::Vector { size, scalar, .. } =
-                                &module.types[member.ty].inner
+                                &ty.inner
                             {
-                                let format = self.map_vector_to_texture_format(*size, scalar)?;
+                                let format = self.map_vector_to_texture_format(&name, *size, scalar)?;
                                 color_targets.push(Some(ColorTargetState {
                                     format,
                                     blend: Some(wgpu::BlendState::REPLACE),
@@ -751,13 +755,57 @@ impl Shader {
     /// A `Result` containing the corresponding `TextureFormat` on success or a `RendererError` on failure.
     fn map_vector_to_texture_format(
         &self,
+        name: &str,
         size: VectorSize,
         scalar: &naga::Scalar,
     ) -> Result<TextureFormat, &'static str> {
         match (size, scalar.kind) {
             // Example mapping: a float vector maps to a specific texture format.
             (VectorSize::Bi | VectorSize::Tri | VectorSize::Quad, ScalarKind::Float) => {
-                Ok(TextureFormat::Rgba16Float)
+                // We check for as string within the name to determine the format
+                // For example xxx_r8unorm would be a R8Unorm format
+                // or r8unorm_xxx would also be a R8Unorm format
+                let format = match name {
+                    name if name.contains("r8unorm") => TextureFormat::R8Unorm,
+                    name if name.contains("r8snorm") => TextureFormat::R8Snorm,
+                    name if name.contains("r8uint") => TextureFormat::R8Uint,
+                    name if name.contains("r8sint") => TextureFormat::R8Sint,
+                    name if name.contains("r16uint") => TextureFormat::R16Uint,
+                    name if name.contains("r16sint") => TextureFormat::R16Sint,
+                    name if name.contains("r16float") => TextureFormat::R16Float,
+                    name if name.contains("rg8unorm") => TextureFormat::Rg8Unorm,
+                    name if name.contains("rg8snorm") => TextureFormat::Rg8Snorm,
+                    name if name.contains("rg8uint") => TextureFormat::Rg8Uint,
+                    name if name.contains("rg8sint") => TextureFormat::Rg8Sint,
+                    name if name.contains("r32uint") => TextureFormat::R32Uint,
+                    name if name.contains("r32sint") => TextureFormat::R32Sint,
+                    name if name.contains("r32float") => TextureFormat::R32Float,
+                    name if name.contains("rg16uint") => TextureFormat::Rg16Uint,
+                    name if name.contains("rg16sint") => TextureFormat::Rg16Sint,
+                    name if name.contains("rg16float") => TextureFormat::Rg16Float,
+                    name if name.contains("rgba8unorm_srgb") => TextureFormat::Rgba8UnormSrgb,
+                    name if name.contains("rgba8unorm") => TextureFormat::Rgba8Unorm,
+                    name if name.contains("rgba8snorm") => TextureFormat::Rgba8Snorm,
+                    name if name.contains("rgba8uint") => TextureFormat::Rgba8Uint,
+                    name if name.contains("rgba8sint") => TextureFormat::Rgba8Sint,
+                    name if name.contains("bgra8unorm_srgb") => TextureFormat::Bgra8UnormSrgb,
+                    name if name.contains("bgra8unorm") => TextureFormat::Bgra8Unorm,
+                    name if name.contains("rgb10a2unorm") => TextureFormat::Rgb10a2Unorm,
+                    name if name.contains("rg32uint") => TextureFormat::Rg32Uint,
+                    name if name.contains("rg32sint") => TextureFormat::Rg32Sint,
+                    name if name.contains("rg32float") => TextureFormat::Rg32Float,
+                    name if name.contains("rgba16uint") => TextureFormat::Rgba16Uint,
+                    name if name.contains("rgba16sint") => TextureFormat::Rgba16Sint,
+                    name if name.contains("rgba16float") => TextureFormat::Rgba16Float,
+                    name if name.contains("rgba32uint") => TextureFormat::Rgba32Uint,
+                    name if name.contains("rgba32sint") => TextureFormat::Rgba32Sint,
+                    name if name.contains("rgba32float") => TextureFormat::Rgba32Float,
+                    _ => {
+                        error!("Unsupported texture format: {:?}", name);
+                        return Err("Unsupported texture format");
+                    }
+                };
+                Ok(format)
             }
             // Extend this mapping based on your shader's output requirements.
             _ => {

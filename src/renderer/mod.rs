@@ -96,7 +96,7 @@ impl State {
         println!("Here!@");
 
         let size = window.inner_size();
-        let surface_format = TextureFormat::Rgba16Float;
+        let surface_format = TextureFormat::Bgra8UnormSrgb;
         let surface_config = SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,

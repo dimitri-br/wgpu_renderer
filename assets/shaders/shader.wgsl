@@ -83,8 +83,8 @@ struct FragmentInput {
 };
 
 struct FragmentOutput {
-    @location(0) color: vec4<f32>,
-    @location(1) normal: vec4<f32>,
+    @location(0) color_rgba16float: vec4<f32>,
+    @location(1) normal_rgba16float: vec4<f32>,
 };
 
 @group(1) @binding(0)
@@ -97,11 +97,11 @@ fn gb_fs_main(input: FragmentInput) -> FragmentOutput {
     var output: FragmentOutput;
 
     // Sample the diffuse/albedo color from a texture
-    output.color = textureSample(color_texture, color_sampler, input.tex_coords);
+    output.color_rgba16float = textureSample(color_texture, color_sampler, input.tex_coords);
 
     // Encode the normal from [-1,1] into [0,1]
     // We assume 'input.normal' is already normalized in the vertex shader.
-    output.normal = vec4<f32>(input.normal * 0.5 + vec3<f32>(0.5), 1.0);
+    output.normal_rgba16float = vec4<f32>(input.normal * 0.5 + vec3<f32>(0.5), 1.0);
 
     return output;
 }

@@ -109,7 +109,7 @@ pub fn load_assets(
     });
 
     create_material_with(&mut asset_manager, "gbuffer_mat", "gbuffer", |material| {
-        material.set_cull_mode(None);
+        material.set_cull_mode(Some(wgpu::Face::Back));
         material.set_depth(false);
         material.set_transparent(false);
         material.set_texture("g_albedo", albedo_texture.view.clone());
@@ -120,7 +120,7 @@ pub fn load_assets(
     });
 
     create_material_with(&mut asset_manager, "invert_mat", "invert", |material| {
-        material.set_cull_mode(None);
+        material.set_cull_mode(Some(wgpu::Face::Front));
         material.set_depth(false);
         material.set_transparent(false);
         material.set_sampler("u_sampler", sampler.clone());

@@ -139,8 +139,14 @@ fn compute_shadow_coord(sd: ShadowData, world_pos: vec3<f32>, remapZ: bool) -> v
     return coord;
 }
 
+
+struct FragmentOutput {
+    @location(0) color_rgba16float: vec4<f32>,
+};
+
 @fragment
-fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
+fn fragment_main(input: VertexOutput) -> FragmentOutput {
+    var output: FragmentOutput;
     var uv = input.position.xy / global_data.screen_size;
     uv.y = 1.0 - uv.y; // Flip Y for WebGPU
 
@@ -268,7 +274,7 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    var output = vec4<f32>(final_color, 1.0);
+    output.color_rgba16float = vec4<f32>(final_color, 1.0);
     //output = vec4<f32>(world_pos, 1.0);
     return output;
 }
