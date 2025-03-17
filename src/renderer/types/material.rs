@@ -62,6 +62,9 @@ pub struct Material {
     // The final built bind groups, if any. We can store a vector or map from group index -> Arc<BindGroup>.
     cached_bind_group: RwLock<Option<Arc<BindGroup>>>,
     bind_group_dirty: AtomicBool,
+
+    // Is this material instanced
+    pub instanced: bool,
 }
 
 impl Material {
@@ -70,6 +73,7 @@ impl Material {
         pipeline_manager: Arc<PipelineManager>,
         device: Arc<wgpu::Device>,
         bind_group_cache: Arc<BindGroupCache>,
+        instanced: bool,
     ) -> Self {
         Self {
             pipeline_manager,
@@ -81,6 +85,7 @@ impl Material {
             bind_group_cache,
             cached_bind_group: RwLock::new(None),
             bind_group_dirty: AtomicBool::new(false),
+            instanced,
         }
     }
 
@@ -345,5 +350,9 @@ impl Material {
                 .get_or_create(layout.as_ref(), &entries, key, true);
             self.cached_bind_group.write().unwrap().replace(bg);
         }
+    }
+
+    pub fn is_instanced(&self) -> bool {
+        self.instanced
     }
 }

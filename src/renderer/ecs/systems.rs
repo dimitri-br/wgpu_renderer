@@ -1,5 +1,6 @@
 // src/renderer/ecs/systems.rs
 
+use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -20,10 +21,13 @@ use crate::renderer::ecs::global_component::GlobalComponent;
 use crate::renderer::ecs::light_manager::LightManager;
 use crate::renderer::ecs::render_graphics_view::RenderGraphicsViewMut;
 use crate::renderer::ecs::components::*;
+use crate::renderer::ecs::instancing_component::InstancingComponent;
 use crate::renderer::ecs::light_update_view::LightUpdateViewMut;
+use crate::renderer::render_batcher::{RenderBatcher, RenderCommand};
 use crate::renderer::render_graph::{RenderGraph, RenderGraphContext, RenderGraphNode};
 use crate::renderer::shadow_atlas::ShadowAtlas;
 use crate::renderer::State;
+use crate::renderer::types::instance_data::InstanceData;
 use crate::renderer::types::light::Light;
 use crate::renderer::types::light_type::LightType;
 use crate::renderer::types::material::Material;
@@ -75,6 +79,7 @@ pub fn load_assets(
 
     // Load shaders.
     asset_manager.get_or_create_shader("main", "assets/shaders/shader.wgsl");
+    asset_manager.get_or_create_shader("main_instanced", "assets/shaders/shader_instanced.wgsl");
     asset_manager.get_or_create_shader("shadow", "assets/shaders/shadow.wgsl");
     asset_manager.get_or_create_shader("gbuffer", "assets/shaders/deferred.wgsl");
     asset_manager.get_or_create_shader("invert", "assets/shaders/post_process.wgsl");
@@ -94,7 +99,7 @@ pub fn load_assets(
     };
 
     // Create materials using a helper.
-    create_material_with(&mut asset_manager, "capsule_mat", "main", |material| {
+    create_material_with(&mut asset_manager, "capsule_mat", "main_instanced", true,|material| {
         material.set_cull_mode(None);
         material.set_depth(true);
         material.set_transparent(false);
@@ -102,7 +107,7 @@ pub fn load_assets(
         material.set_sampler("color_sampler", sampler.clone());
     });
 
-    create_material_with(&mut asset_manager, "box_mat", "main", |material| {
+    create_material_with(&mut asset_manager, "box_mat", "main_instanced",  false,|material| {
         material.set_cull_mode(None);
         material.set_depth(true);
         material.set_transparent(false);
@@ -110,7 +115,7 @@ pub fn load_assets(
         material.set_sampler("color_sampler", sampler.clone());
     });
 
-    create_material_with(&mut asset_manager, "gbuffer_mat", "gbuffer", |material| {
+    create_material_with(&mut asset_manager, "gbuffer_mat", "gbuffer", false, |material| {
         material.set_cull_mode(Some(wgpu::Face::Back));
         material.set_depth(false);
         material.set_transparent(false);
@@ -121,14 +126,14 @@ pub fn load_assets(
         material.set_sampler("shadow_sampler", shadow_atlas.shadow_sampler.clone());
     });
 
-    create_material_with(&mut asset_manager, "invert_mat", "invert", |material| {
+    create_material_with(&mut asset_manager, "invert_mat", "invert", false, |material| {
         material.set_cull_mode(Some(wgpu::Face::Front));
         material.set_depth(false);
         material.set_transparent(false);
         material.set_sampler("u_sampler", sampler.clone());
     });
 
-    create_material_with(&mut asset_manager, "shadow_mat", "shadow", |material| {
+    create_material_with(&mut asset_manager, "shadow_mat", "shadow", false,|material| {
         material.set_cull_mode(Some(wgpu::Face::Front));
         material.set_depth(true);
         material.set_transparent(false);
@@ -140,12 +145,13 @@ fn create_material_with<F>(
     asset_manager: &mut AssetManager,
     name: &str,
     shader_name: &str,
+    instanced: bool,
     config: F,
 ) -> Arc<Material>
 where
     F: FnOnce(Arc<Material>),
 {
-    let material = asset_manager.get_or_create_material(name, shader_name);
+    let material = asset_manager.get_or_create_material(name, shader_name, instanced);
     config(material.clone());
     material
 }
@@ -352,6 +358,11 @@ pub fn update_system(
     mut state: UniqueViewMut<State>,
     mut global_component: UniqueViewMut<GlobalComponent>,
     mut camera_component: UniqueViewMut<CameraComponent>,
+    mut render_batcher: UniqueViewMut<RenderBatcher>,
+    // Mesh, material, and transform components.
+    meshes: View<MeshComponent>,
+    materials: View<MaterialComponent>,
+    transforms: View<TransformComponent>,
 ) {
     state.update();
     let time = std::time::SystemTime::now()
@@ -362,9 +373,14 @@ pub fn update_system(
     camera_component.camera.update(state.delta_time);
     global_component.global_data.update_from_camera(camera_component.camera.deref());
     global_component.global_uniform_buffer.update(&global_component.global_data);
+
+    render_batcher.clear();
+    (&meshes, &materials, &transforms).iter().for_each(|(mesh, material, transform)| {
+        render_batcher.add(mesh.mesh.clone(), material.material.clone(), transform.transform.clone());
+    });
 }
 
-pub fn light_update_system(
+pub fn update_lighting(
     mut light_update: LightUpdateViewMut,
     mut lights: shipyard::ViewMut<LightComponent>,
 ) {
@@ -378,6 +394,30 @@ pub fn light_update_system(
     for (mut light_comp, updated_light) in (&mut lights).iter().zip(light_data.into_iter()) {
         light_comp.light = updated_light;
     }
+}
+
+/// This function builds a contiguous array of InstanceData from the batcher's instanced commands,
+/// and computes the group offsets mapping. Then it updates the InstancingComponent.
+pub fn update_instancing(batcher: UniqueView<RenderBatcher>, mut instancing: UniqueViewMut<InstancingComponent>) {
+    let mut cpu_instance_data = Vec::new();
+    let mut group_offsets = HashMap::new();
+    let mut total_instances = 0;
+
+    for command in &batcher.commands {
+        if let RenderCommand::Instanced { mesh, material, transforms } = command {
+            // Assume each mesh and material exposes a unique ID (as u64).
+            let key = (Arc::as_ptr(&mesh) as u64, Arc::as_ptr(&material) as u64);
+            group_offsets.insert(key, (total_instances as u32, transforms.len() as u32));
+            for transform in transforms {
+                cpu_instance_data.push(InstanceData {
+                    model: transform.matrix,
+                    normal_matrix: transform.normal_matrix,
+                });
+                total_instances += 1;
+            }
+        }
+    }
+    instancing.update(&cpu_instance_data, group_offsets);
 }
 
 /// Helper to create a RenderPassColorAttachment with a clear color.
@@ -443,19 +483,45 @@ pub fn render_graph_system(
                     occlusion_query_set: None,
                 });
                 pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
-                (&mesh_comps, &mat_comps, &transform_comps).iter().for_each(|(mesh_comp, mat_comp, transform_comp)| {
-                    if !mat_comp.material.get_depth() {
-                        return;
+                pass.set_bind_group(2, &graphics.instancing_component.instancing_bind_group, &[]);
+                for command in &graphics.render_batcher.commands {
+                    match command {
+                        RenderCommand::Instanced { mesh, material, transforms: _ } => {
+                            if !material.get_depth(){
+                                continue;
+                            }
+                            pass.set_pipeline(&material.get_pipeline());
+                            // For single draws, use push constants.
+                            pass.set_push_constants(
+                                wgpu::ShaderStages::VERTEX_FRAGMENT,
+                                0,
+                                bytemuck::cast_slice(&[glam::Mat4::IDENTITY]),
+                            );
+                            // Get the group mapping for this (mesh, material) pair.
+                            let key = (Arc::as_ptr(&mesh) as u64, Arc::as_ptr(&material) as u64);
+                            if let Some(&(offset, count)) = graphics.instancing_component.group_offsets.get(&key) {
+                                // Bind the instancing bind group to group 2.
+                                material.bind(&mut pass);
+                                // Draw instanced with the instance count from the group.
+                                mesh.draw_instanced(&mut pass, offset, count);
+                            }
+                        }
+                        RenderCommand::Single { mesh, material, transform } => {
+                            if !material.get_depth(){
+                                continue;
+                            }
+                            pass.set_pipeline(&material.get_pipeline());
+                            // For single draws, use push constants.
+                            pass.set_push_constants(
+                                wgpu::ShaderStages::VERTEX_FRAGMENT,
+                                0,
+                                bytemuck::cast_slice(&[*transform]),
+                            );
+                            material.bind(&mut pass);
+                            mesh.draw(&mut pass);
+                        }
                     }
-                    pass.set_pipeline(&mat_comp.material.get_pipeline());
-                    mat_comp.material.bind(&mut pass);
-                    pass.set_push_constants(
-                        wgpu::ShaderStages::VERTEX_FRAGMENT,
-                        0,
-                        bytemuck::cast_slice(&[transform_comp.transform]),
-                    );
-                    mesh_comp.mesh.draw(&mut pass);
-                });
+                }
             }
         }),
     });
@@ -501,10 +567,10 @@ pub fn render_graph_system(
                             1.0,
                         );
                         pass.set_scissor_rect(
-                            rect.x as u32,
-                            rect.y as u32,
-                            rect.width as u32,
-                            rect.height as u32,
+                            rect.x,
+                            rect.y,
+                            rect.width,
+                            rect.height,
                         );
                         pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
                         (&mesh_comps, &transform_comps, &shadow_cast_component)
@@ -523,6 +589,7 @@ pub fn render_graph_system(
                                     mesh_comp.mesh.draw(&mut pass);
                                 }
                             });
+
                     }
                 }
             }

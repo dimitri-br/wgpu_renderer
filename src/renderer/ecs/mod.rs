@@ -5,4 +5,5 @@ pub mod global_component;
 pub mod camera_component;
 pub mod light_manager;
 mod light_update_view;
+pub mod instancing_component;
 

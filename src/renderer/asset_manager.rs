@@ -220,6 +220,7 @@ impl AssetManager {
         &mut self,
         id: S,
         shader_name: &str,
+        instanced: bool,
     ) -> Arc<Material> {
         let key = uuid_from_string(id.as_ref());
         if let Some(mat) = self.materials.get(&key) {
@@ -237,6 +238,7 @@ impl AssetManager {
             self.pipeline_manager.clone(),
             self.device.clone(),
             self.bind_group_cache.clone(),
+            instanced,
         );
         let mat_arc = Arc::new(material);
         self.materials.insert(key, mat_arc.clone());

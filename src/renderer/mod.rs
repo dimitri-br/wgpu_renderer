@@ -10,6 +10,7 @@ mod render_graph;
 mod shadow_data_storage;
 pub mod light_storage;
 mod gpu_storage;
+pub mod render_batcher;
 
 use std::sync::Arc;
 use log::{error, info};

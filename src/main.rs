@@ -12,8 +12,10 @@ use renderer::ecs::systems::{add_entities, handle_keyboard_input, handle_mouse_i
 use renderer::ecs::global_component::GlobalComponent;
 use crate::renderer::auto_mipmapper::AutoMipmapper;
 use crate::renderer::ecs::camera_component::CameraComponent;
+use crate::renderer::ecs::instancing_component::InstancingComponent;
 use crate::renderer::ecs::light_manager::LightManager;
-use crate::renderer::ecs::systems::{light_update_system, mipmap_system, render_graph_system};
+use crate::renderer::ecs::systems::{update_lighting, mipmap_system, render_graph_system, update_instancing};
+use crate::renderer::render_batcher::RenderBatcher;
 use crate::renderer::shadow_atlas::ShadowAtlas;
 use crate::renderer::types::fps_camera::FpsCamera;
 
@@ -43,7 +45,8 @@ fn main() {
     let shadow_atlas = ShadowAtlas::new(&state.device.clone(), 2048*4, 2048*4, wgpu::TextureFormat::Depth32Float);
     let light_manager = LightManager::new(state.device.clone(), state.queue.clone());
     let global_component = GlobalComponent::new(&state, &light_manager.shadow_data_storage, &light_manager.light_storage);
-
+    let instancing_component = InstancingComponent::new(state.device.clone(), state.queue.clone(), 1000);
+    let render_batcher = RenderBatcher::new();
     let camera_component: CameraComponent = FpsCamera::new(
         glam::vec3(0.0, 0.0, -3.0),
         0.0, 0.0,
@@ -60,6 +63,8 @@ fn main() {
     world.add_unique(shadow_atlas);
     world.add_unique(light_manager);
     world.add_unique(global_component);
+    world.add_unique(instancing_component);
+    world.add_unique(render_batcher);
     world.add_unique(camera_component);
 
     // Load assets, then add entities
@@ -79,7 +84,8 @@ fn main() {
     window.set_cursor_visible(false);
 
     world.run(update_system);
-    world.run(light_update_system);
+    world.run(update_lighting);
+    world.run(update_instancing);
 
     // Run the event loop
     event_loop
@@ -122,7 +128,8 @@ fn main() {
                 }
                 Event::AboutToWait => {
                     world.run(update_system);
-                    world.run(light_update_system);
+                    world.run(update_lighting);
+                    world.run(update_instancing);
                     window.request_redraw();
                 }
                 _ => {}

@@ -5,7 +5,9 @@ use shipyard::{AllStorages, SharedBorrow, TrackingTimestamp, UniqueView, UniqueV
 use wgpu::SurfaceError;
 use crate::renderer::ecs::camera_component::CameraComponent;
 use crate::renderer::ecs::global_component::GlobalComponent;
+use crate::renderer::ecs::instancing_component::InstancingComponent;
 use crate::renderer::ecs::light_manager::LightManager;
+use crate::renderer::render_batcher::RenderBatcher;
 use crate::renderer::shadow_atlas::ShadowAtlas;
 use crate::renderer::State;
 
@@ -19,6 +21,8 @@ pub struct RenderGraphicsViewMut<'v> {
     pub light_manager: UniqueView<'v, LightManager>,
     pub camera_component: UniqueView<'v, CameraComponent>,
     pub shadow_atlas: UniqueViewMut<'v, ShadowAtlas>,
+    pub instancing_component: UniqueView<'v, InstancingComponent>,
+    pub render_batcher: UniqueView<'v, RenderBatcher>,
 }
 
 impl shipyard::Borrow for RenderGraphicsViewMut<'_> {
@@ -39,6 +43,8 @@ impl shipyard::Borrow for RenderGraphicsViewMut<'_> {
         let light_manager = UniqueView::<LightManager>::borrow(&all_storages, all_borrow.clone(), last_run, current)?;
         let camera_component = UniqueView::<CameraComponent>::borrow(&all_storages, all_borrow.clone(), last_run, current)?;
         let shadow_atlas = UniqueViewMut::<ShadowAtlas>::borrow(&all_storages, all_borrow.clone(), last_run, current)?;
+        let instancing_component = UniqueView::<InstancingComponent>::borrow(&all_storages, all_borrow.clone(), last_run, current)?;
+        let render_batcher = UniqueView::<RenderBatcher>::borrow(&all_storages, all_borrow.clone(), last_run, current)?;
 
         // This error will now be reported as an error during the view creation process and not the system but is still bubbled up
         let output = try_get_texture(&state, state.surface.get_current_texture()).unwrap();
@@ -65,6 +71,8 @@ impl shipyard::Borrow for RenderGraphicsViewMut<'_> {
             light_manager,
             camera_component,
             shadow_atlas,
+            instancing_component,
+            render_batcher,
         })
     }
 }
