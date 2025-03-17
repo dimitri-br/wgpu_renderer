@@ -82,6 +82,7 @@ pub fn load_assets(
         "capsule_mat",
         "main_instanced",
         true,
+        true,
         |material| {
             material.set_cull_mode(None);
             material.set_depth(true);
@@ -96,6 +97,7 @@ pub fn load_assets(
         "box_mat",
         "main_instanced",
         true,
+        true,
         |material| {
             material.set_cull_mode(None);
             material.set_depth(true);
@@ -109,6 +111,7 @@ pub fn load_assets(
         &mut asset_manager,
         "gbuffer_mat",
         "gbuffer",
+        false,
         false,
         |material| {
             material.set_cull_mode(Some(wgpu::Face::Back));
@@ -127,6 +130,7 @@ pub fn load_assets(
         "invert_mat",
         "invert",
         false,
+        false,
         |material| {
             material.set_cull_mode(Some(wgpu::Face::Front));
             material.set_depth(false);
@@ -139,6 +143,7 @@ pub fn load_assets(
         &mut asset_manager,
         "shadow_mat",
         "shadow",
+        false,
         false,
         |material| {
             material.set_cull_mode(Some(wgpu::Face::Front));
@@ -154,12 +159,13 @@ fn create_material_with<F>(
     name: &str,
     shader_name: &str,
     instanced: bool,
+    cast_shadows: bool,
     config: F,
 ) -> Arc<Material>
 where
     F: FnOnce(Arc<Material>),
 {
-    let material = asset_manager.get_or_create_material(name, shader_name, instanced);
+    let material = asset_manager.get_or_create_material(name, shader_name, instanced, cast_shadows);
     config(material.clone());
     material
 }
@@ -223,7 +229,7 @@ pub fn add_entities(
     // Capsules
     entities.bulk_add_entity(
         (&mut meshes, &mut materials, &mut transforms, &mut shadow_cast),
-        (0..40).map(|_| {
+        (0..250).map(|_| {
             let mesh_comp = MeshComponent {
                 mesh: asset_manager.get_mesh_by_name("assets/capsule.obj").unwrap(),
             };
@@ -454,10 +460,6 @@ fn generate_color_attachment(view: &wgpu::TextureView) -> RenderPassColorAttachm
 pub fn render_graph_system(
     mut graphics: RenderGraphicsViewMut,
     asset_manager: UniqueView<AssetManager>,
-    mesh_comps: View<MeshComponent>,
-    mat_comps: View<MaterialComponent>,
-    transform_comps: View<TransformComponent>,
-    shadow_cast_component: View<ShadowCastComponent>,
 ) {
     let shadow_atlas_view = graphics.shadow_atlas.texture.view.clone();
     let mut context = RenderGraphContext {
@@ -544,7 +546,7 @@ pub fn render_graph_system(
         }),
     });
 
-    // Shadow Pass Node.
+    // Shadow Pass Node
     render_graph.add_node(RenderGraphNode {
         name: "shadow_pass".into(),
         dependencies: vec!["depth_pass".into()],
@@ -553,29 +555,36 @@ pub fn render_graph_system(
             let shadow_view = ctx.shadow_atlas_view.clone();
 
             if let Some(encoder) = ctx.encoder {
-                let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Shadow Pass"),
                     color_attachments: &[],
-                    depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                         view: &shadow_view,
-                        depth_ops: Some(Operations {
-                            load: LoadOp::Clear(1.0),
-                            store: StoreOp::Store,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
                         }),
                         stencil_ops: None,
                     }),
                     timestamp_writes: None,
                     occlusion_query_set: None,
                 });
+
                 pass.set_pipeline(&shadow_material.get_pipeline());
-                // Fetch updated light/shadow data from the LightManager.
+                // Bind group 0 for global data, group 2 for instancing (if needed).
+                pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
+                pass.set_bind_group(1, &graphics.instancing_component.instancing_bind_group, &[]);
+
+                // Retrieve the shadow data from the LightManager
                 let shadow_data = graphics.light_manager.shadow_data_storage.get_all_shadow_data();
                 let light_data = graphics.light_manager.light_storage.get_all_lights();
-                for light in light_data.iter() {
+
+                for light in &light_data {
                     for i in 0..light.shadow_data_count {
                         let offset = light.shadow_data_offset as usize + i as usize;
                         let smc = &shadow_data[offset];
                         let rect = smc.tile.read().unwrap().rect;
+
                         pass.set_viewport(
                             rect.x as f32,
                             rect.y as f32,
@@ -584,35 +593,71 @@ pub fn render_graph_system(
                             0.0,
                             1.0,
                         );
-                        pass.set_scissor_rect(
-                            rect.x,
-                            rect.y,
-                            rect.width,
-                            rect.height,
-                        );
-                        pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
-                        (&mesh_comps, &transform_comps, &shadow_cast_component)
-                            .iter()
-                            .for_each(|(mesh_comp, transform_comp, shadow_caster)| {
-                                if shadow_caster.shadow_cast {
-                                    let model_matrix = [transform_comp.transform.matrix];
-                                    let mut push_data = Vec::with_capacity(32);
-                                    push_data.extend_from_slice(bytemuck::bytes_of(&model_matrix));
-                                    push_data.extend_from_slice(bytemuck::bytes_of(&smc.shadow_data.light_view_proj));
+                        pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
+
+                        // For each command in the batcher:
+                        for command in &graphics.render_batcher.commands {
+                            match command {
+                                RenderCommand::Instanced { mesh, material, transforms: _ } => {
+                                    if !material.is_shadow_caster() {
+                                        // Skip if these instances don't cast shadows
+                                        continue;
+                                    }
+                                    // We'll assume your "shadow_mat" doesn't rely on the mesh's material
+                                    // pipeline states, or that it's the same pipeline you already set.
+                                    // For instanced draws, we do the same approach as in the depth pass:
+                                    pass.set_pipeline(&shadow_material.get_pipeline());
+                                    // We also set push constants for each instance, but we only have
+                                    // one shadow matrix. The typical approach is to store (model + shadow_matrix)
+                                    // in push constants. However, to replicate the same approach as your
+                                    // depth pass, you'd set push constants to identity, and let the
+                                    // vertex shader fetch the instance data from the SSBO.
+
+                                    // But we still need to combine each instance model with smc.shadow_data.light_view_proj.
+                                    // Typically you'd do that in the shader. If your shader expects push constants,
+                                    // you'd need to do a loop. Instead, many do a per-instance push of model
+                                    // plus the light_view_proj. That might require a separate instanced pipeline.
+
+                                    // For a quick approach: set the push constants to identity for the model,
+                                    // and let the vertex shader multiply the instance transform by the shadow matrix
+                                    // from a uniform or push constants. If your shadow shader requires both, you'd do:
                                     pass.set_push_constants(
                                         wgpu::ShaderStages::VERTEX_FRAGMENT,
                                         0,
-                                        &push_data,
+                                        bytemuck::cast_slice(&[glam::Mat4::IDENTITY, smc.shadow_data.light_view_proj]),
                                     );
-                                    mesh_comp.mesh.draw(&mut pass);
-                                }
-                            });
 
+                                    // Retrieve the offset/count from the instancing component
+                                    let key = (Arc::as_ptr(&mesh) as u64, Arc::as_ptr(&material) as u64);
+                                    // Or if you do store a "shadow_mat" in the batch, you'd match that.
+                                    // If your real code uses the same key as the depth pass (mesh+material), do that:
+                                    // let key = (Arc::as_ptr(mesh) as u64, Arc::as_ptr(material) as u64);
+
+                                    if let Some(&(inst_offset, inst_count)) = graphics.instancing_component.group_offsets.get(&key) {
+                                        mesh.draw_instanced(&mut pass, inst_offset, inst_count);
+                                    }
+                                }
+                                RenderCommand::Single { mesh, material, transform } => {
+                                    if !material.is_shadow_caster() {
+                                        continue;
+                                    }
+                                    pass.set_pipeline(&shadow_material.get_pipeline());
+                                    // Combine model + smc.shadow_data.light_view_proj in push constants
+                                    // so the vertex shader can do: shadow_matrix * model * position.
+                                    let mut push_data = Vec::with_capacity(64);
+                                    push_data.extend_from_slice(bytemuck::bytes_of(&transform.matrix));
+                                    push_data.extend_from_slice(bytemuck::bytes_of(&smc.shadow_data.light_view_proj));
+                                    pass.set_push_constants(wgpu::ShaderStages::VERTEX_FRAGMENT, 0, &push_data);
+                                    mesh.draw(&mut pass);
+                                }
+                            }
+                        }
                     }
                 }
             }
         }),
     });
+
 
     // GBuffer Composite Pass Node.
     render_graph.add_node(RenderGraphNode {

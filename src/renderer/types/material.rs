@@ -65,6 +65,7 @@ pub struct Material {
 
     // Is this material instanced
     pub instanced: bool,
+    pub is_shadow_caster: bool,
 }
 
 impl Material {
@@ -74,6 +75,7 @@ impl Material {
         device: Arc<wgpu::Device>,
         bind_group_cache: Arc<BindGroupCache>,
         instanced: bool,
+        is_shadow_caster: bool
     ) -> Self {
         Self {
             pipeline_manager,
@@ -86,6 +88,7 @@ impl Material {
             cached_bind_group: RwLock::new(None),
             bind_group_dirty: AtomicBool::new(false),
             instanced,
+            is_shadow_caster
         }
     }
 
@@ -354,5 +357,9 @@ impl Material {
 
     pub fn is_instanced(&self) -> bool {
         self.instanced
+    }
+
+    pub fn is_shadow_caster(&self) -> bool {
+        self.is_shadow_caster
     }
 }

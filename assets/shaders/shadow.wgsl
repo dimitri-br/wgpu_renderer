@@ -47,13 +47,21 @@ var<storage, read> shadow_data: array<ShadowData>;
 // -----------------------------------------------------------------------------
 // We pass the light's world transform (model matrix) as a push constant.
 // The shader computes the view matrix as the inverse of this matrix.
-struct Transform {
+struct PushConstant {
     model: mat4x4<f32>,
     shadow_view_proj: mat4x4<f32>,
 };
 
 
-var<push_constant> uniforms: Transform;
+var<push_constant> uniforms: PushConstant;
+
+struct Transform{
+    model: mat4x4<f32>,
+    inverse_transpose_model: mat4x4<f32>,
+}
+
+@group(1) @binding(0)
+var<storage, read> instances: array<Transform>;
 
 // -----------------------------------------------------------------------------
 // Vertex Shader: Compute Shadow Map Position
@@ -69,10 +77,39 @@ struct VertexOutput {
     @builtin(position) position: vec4<f32>,
 };
 
+fn is_identity(m: mat4x4<f32>) -> bool {
+    let epsilon: f32 = 0.0001;
+    return  abs(m[0][0] - 1.0) < epsilon &&
+            abs(m[0][1] - 0.0) < epsilon &&
+            abs(m[0][2] - 0.0) < epsilon &&
+            abs(m[0][3] - 0.0) < epsilon &&
+
+            abs(m[1][0] - 0.0) < epsilon &&
+            abs(m[1][1] - 1.0) < epsilon &&
+            abs(m[1][2] - 0.0) < epsilon &&
+            abs(m[1][3] - 0.0) < epsilon &&
+
+            abs(m[2][0] - 0.0) < epsilon &&
+            abs(m[2][1] - 0.0) < epsilon &&
+            abs(m[2][2] - 1.0) < epsilon &&
+            abs(m[2][3] - 0.0) < epsilon &&
+
+            abs(m[3][0] - 0.0) < epsilon &&
+            abs(m[3][1] - 0.0) < epsilon &&
+            abs(m[3][2] - 0.0) < epsilon &&
+            abs(m[3][3] - 1.0) < epsilon;
+}
+
 @vertex
-fn vs_main(input: VertexInput) -> VertexOutput {
+fn vs_main(input: VertexInput, @builtin(instance_index) instance_index: u32) -> VertexOutput {
     var output: VertexOutput;
-    let world_pos = (uniforms.model * vec4<f32>(input.position, 1.0)).xyz;
+    var instance: Transform;
+    if (!is_identity(uniforms.model)) {
+        instance.model = uniforms.model;
+    }else{
+        instance = instances[instance_index];
+    }
+    let world_pos = (instance.model * vec4<f32>(input.position, 1.0)).xyz;
     output.position = uniforms.shadow_view_proj * vec4<f32>(world_pos, 1.0);
     return output;
 }
