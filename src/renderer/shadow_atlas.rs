@@ -3,7 +3,7 @@
 use std::cmp::{max, min};
 use wgpu::{Device, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, Extent3d, Queue};
 use std::sync::{Arc, RwLock};
-use log::{info, warn};
+use log::{debug, error, info, warn};
 use shipyard::Unique;
 use crate::renderer::types::sampler::SamplerParameters;
 use crate::renderer::types::texture::Texture;
@@ -71,7 +71,7 @@ pub struct ShadowAtlas {
 
 impl ShadowAtlas {
     /// Create a new shadow atlas with the given dimensions and texture format.
-    pub fn new(device: &Device, queue: &Queue, width: u32, height: u32, format: TextureFormat) -> Self {
+    pub fn new(device: &Device, width: u32, height: u32, format: TextureFormat) -> Self {
         // Create a screen texture for the atlas.
         let texture = device.create_texture(&TextureDescriptor {
             label: Some("Shadow Atlas Texture"),
@@ -103,7 +103,7 @@ impl ShadowAtlas {
         };
 
         Self {
-            texture: Arc::new(Texture::new_screen_texture(device, queue, (width, height), format, false)),
+            texture: Arc::new(Texture::new_screen_texture(device, (width, height), format, false)),
             shadow_sampler: sampler,
             width,
             height,
@@ -157,15 +157,15 @@ impl ShadowAtlas {
             // Compute UV offset/scale.
             let uv_offset = glam::Vec2::new(tile_rect.x as f32 / self.width as f32, tile_rect.y as f32 / self.height as f32);
             let uv_scale = glam::Vec2::new(tile_rect.width as f32 / self.width as f32, tile_rect.height as f32 / self.height as f32);
-            info!("Allocated tile of size {}x{} at ({}, {}) in ShadowAtlas", req_width, req_height, tile_rect.x, tile_rect.y);
-            info!("UV offset: {:?}, UV scale: {:?}", uv_offset, uv_scale);
+            debug!("Allocated tile of size {}x{} at ({}, {}) in ShadowAtlas", req_width, req_height, tile_rect.x, tile_rect.y);
+            debug!("UV offset: {:?}, UV scale: {:?}", uv_offset, uv_scale);
             // Create the tile and store it.
             let tile = AtlasTile { rect: tile_rect, uv_offset, uv_scale };
             let tile = Arc::new(RwLock::new(tile));
             self.tiles.push(tile.clone());
             Some(tile)
         } else {
-            warn!("Failed to allocate tile of size {}x{} in ShadowAtlas", req_width, req_height);
+            error!("Failed to allocate tile of size {}x{} in ShadowAtlas", req_width, req_height);
             None
         }
     }

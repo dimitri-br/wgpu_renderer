@@ -5,6 +5,7 @@ use std::sync::Arc;
 pub struct Texture {
     pub texture: Arc<wgpu::Texture>,
     pub view: Arc<wgpu::TextureView>,
+    pub mipmappable: bool,
     pub mip_level_count: u32,
 }
 
@@ -13,10 +14,15 @@ impl Texture {
         self.texture.create_view(descriptor)
     }
 
-    pub fn load_from_bytes(device: &wgpu::Device, queue: &wgpu::Queue, bytes: &[u8], format: wgpu::TextureFormat) -> Self {
+    pub fn load_from_bytes(device: &wgpu::Device, queue: &wgpu::Queue, bytes: &[u8], format: wgpu::TextureFormat, mipmappable: bool) -> Self {
         let img = image::load_from_memory(bytes).unwrap().to_rgba8();
         let dimensions = img.dimensions();
-        let mip_level_count = 1 + (dimensions.0.max(dimensions.1) as f32).log2().floor() as u32;
+        let mip_level_count = if mipmappable {
+            1 + (dimensions.0.max(dimensions.1) as f32).log2().floor() as u32
+        } else {
+            1
+        };
+
 
         let size = wgpu::Extent3d {
             width: dimensions.0,
@@ -54,16 +60,17 @@ impl Texture {
         Self {
             texture: Arc::new(texture),
             view: Arc::new(view),
+            mipmappable,
             mip_level_count
         }
     }
 
-    pub fn load_from_file(device: &wgpu::Device, queue: &wgpu::Queue, path: &Path, format: wgpu::TextureFormat) -> Self {
+    pub fn load_from_file(device: &wgpu::Device, queue: &wgpu::Queue, path: &Path, format: wgpu::TextureFormat, mipmappable: bool) -> Self {
         let bytes = std::fs::read(path).unwrap();
-        Self::load_from_bytes(device, queue, &bytes, format)
+        Self::load_from_bytes(device, queue, &bytes, format, mipmappable)
     }
 
-    pub fn new_screen_texture(device: &wgpu::Device, queue: &wgpu::Queue, dimensions: (u32, u32), format: wgpu::TextureFormat, is_cube: bool) -> Self{
+    pub fn new_screen_texture(device: &wgpu::Device, dimensions: (u32, u32), format: wgpu::TextureFormat, is_cube: bool) -> Self{
         log::info!("Creating screen texture with dimensions: {:?}", dimensions);
         let size = wgpu::Extent3d {
             width: dimensions.0,
@@ -84,7 +91,8 @@ impl Texture {
         Self {
             texture: Arc::new(texture),
             view: Arc::new(view),
-            mip_level_count: 1
+            mipmappable: false,
+            mip_level_count: 1,
         }
     }
 }

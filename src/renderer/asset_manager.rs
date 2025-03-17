@@ -153,6 +153,7 @@ impl AssetManager {
         &mut self,
         name: S,
         path: P,
+        mipmappable: bool,
     ) -> Arc<Texture> {
         let key = uuid_from_string(name.as_ref());
         if let Some(texture) = self.textures.get(&key) {
@@ -165,6 +166,7 @@ impl AssetManager {
             &self.queue,
             path.as_ref(),
             wgpu::TextureFormat::Rgba8UnormSrgb,
+            mipmappable,
         );
         let arc_tex = Arc::new(texture);
         self.textures.insert(key, arc_tex.clone());
@@ -178,7 +180,7 @@ impl AssetManager {
             return texture.clone();
         }
         info!("Creating screen texture '{}'.", name);
-        let texture = Texture::new_screen_texture(&self.device, &self.queue, size, format, false);
+        let texture = Texture::new_screen_texture(&self.device, size, format, false);
         let arc_tex = Arc::new(texture);
         self.textures.insert(key, arc_tex.clone());
         arc_tex
@@ -188,7 +190,7 @@ impl AssetManager {
         let key = uuid_from_string(name);
         if let Some(texture) = self.textures.get(&key) {
             info!("Replacing screen texture '{}'.", name);
-            let new_texture = Texture::new_screen_texture(&self.device, &self.queue, size, format, is_cube);
+            let new_texture = Texture::new_screen_texture(&self.device, size, format, is_cube);
             let arc_tex = Arc::new(new_texture);
             self.textures.insert(key, arc_tex.clone());
             arc_tex
@@ -245,5 +247,10 @@ impl AssetManager {
     pub fn get_material_by_name<S: AsRef<str>>(&self, name: S) -> Option<Arc<Material>> {
         let key = uuid_from_string(name.as_ref());
         self.materials.get(&key).cloned()
+    }
+
+    /// Gets all textures
+    pub fn get_all_textures(&self) -> Vec<Arc<Texture>> {
+        self.textures.values().cloned().collect()
     }
 }

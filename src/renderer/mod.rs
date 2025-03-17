@@ -49,7 +49,7 @@ impl State {
             backends: if cfg!(target_arch = "wasm32") {
                 Backends::BROWSER_WEBGPU
             } else if cfg!(target_os = "macos") {
-                Backends::METAL
+                Backends::VULKAN
             } else {
                 Backends::PRIMARY
             },
@@ -80,9 +80,10 @@ impl State {
                 required_features: Features::PUSH_CONSTANTS,
                 required_limits: Limits {
                     max_push_constant_size: 128,
+                    max_texture_dimension_2d: 16384,
                     ..Default::default()
                 },
-                memory_hints: wgpu::MemoryHints::default(),
+                memory_hints: wgpu::MemoryHints::Performance,
             },
             None
         ).await {

@@ -25,6 +25,9 @@ struct ShadowData {
     bias: f32,
 };
 
+// u32 push constant - light count
+var<push_constant> light_count: u32;
+
 @group(0) @binding(0)
 var<uniform> global_data: GlobalData;
 
@@ -167,7 +170,6 @@ fn fragment_main(input: VertexOutput) -> FragmentOutput {
     var final_color = albedo * 0.05;
 
     // Loop over lights.
-    let light_count = arrayLength(&lights);
     for (var i = 0u; i < light_count; i = i + 1u) {
         let light = lights[i];
         if (light.intensity <= 0.0) { continue; }

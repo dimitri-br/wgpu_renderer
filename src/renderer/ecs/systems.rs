@@ -3,8 +3,7 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
-use glam::{vec3, vec4, Vec4Swizzles};
-use log::{error, info, warn};
+use glam::{vec3};
 use rand::random;
 use shipyard::{
     EntitiesViewMut, IntoIter, UniqueView, UniqueViewMut, View, ViewMut,
@@ -14,7 +13,6 @@ use wgpu::{
     RenderPassDescriptor, StoreOp, TextureFormat,
 };
 use winit::event::KeyEvent;
-use winit::keyboard::{KeyCode, PhysicalKey};
 
 use crate::renderer::asset_manager::AssetManager;
 use crate::renderer::ecs::camera_component::CameraComponent;
@@ -25,51 +23,47 @@ use crate::renderer::ecs::components::*;
 use crate::renderer::ecs::light_update_view::LightUpdateViewMut;
 use crate::renderer::render_graph::{RenderGraph, RenderGraphContext, RenderGraphNode};
 use crate::renderer::shadow_atlas::ShadowAtlas;
-use crate::renderer::shadow_data_storage::ShadowDataStorage;
 use crate::renderer::State;
-use crate::renderer::types::camera::Camera;
 use crate::renderer::types::light::Light;
 use crate::renderer::types::light_type::LightType;
 use crate::renderer::types::material::Material;
 use crate::renderer::types::sampler::SamplerParameters;
-use crate::renderer::types::shadow_data::ShadowData;
 use crate::renderer::types::transform::Transform;
-use crate::renderer::types::uniform::{Uniform, UniformBuffer};
 
 /// Loads assets (meshes, textures, shaders, materials, and screen textures) into the asset manager.
 pub fn load_assets(
-    mut state: UniqueViewMut<State>,
+    state: UniqueViewMut<State>,
     mut asset_manager: UniqueViewMut<AssetManager>,
-    mut auto_mipmapper: UniqueViewMut<crate::renderer::auto_mipmapper::AutoMipmapper>,
+    auto_mipmapper: UniqueViewMut<crate::renderer::auto_mipmapper::AutoMipmapper>,
     shadow_atlas: UniqueView<ShadowAtlas>,
 ) {
     // Load meshes and textures.
     let mesh = asset_manager.get_or_create_mesh("assets/capsule.obj");
-    let texture = asset_manager.get_or_create_texture("capsule_tex", "assets/capsule0.jpg");
+    let texture = asset_manager.get_or_create_texture("capsule_tex", "assets/capsule0.jpg", true);
     let box_mesh = asset_manager.get_or_create_mesh("assets/cube.obj");
-    let white_texture = asset_manager.get_or_create_texture("white_tex", "assets/solid_white.png");
+    let white_texture = asset_manager.get_or_create_texture("white_tex", "assets/solid_white.png", false);
 
     // GBuffer setup.
     let screen_size = state.get_screen_size();
     let albedo_texture = asset_manager.get_or_create_screen_texture(
         "albedo_texture",
         screen_size,
-        wgpu::TextureFormat::Rgba16Float,
+        TextureFormat::Rgba16Float,
     );
     let normal_texture = asset_manager.get_or_create_screen_texture(
         "normal_texture",
         screen_size,
-        wgpu::TextureFormat::Rgba16Float,
+        TextureFormat::Rgba16Float,
     );
     let depth_texture = asset_manager.get_or_create_screen_texture(
         "depth_texture",
         screen_size,
-        wgpu::TextureFormat::Depth32Float,
+        TextureFormat::Depth32Float,
     );
     let output_texture = asset_manager.get_or_create_screen_texture(
         "output_texture",
         screen_size,
-        wgpu::TextureFormat::Rgba16Float,
+        TextureFormat::Rgba16Float,
     );
 
     // Generate mipmaps for the texture.
@@ -161,7 +155,6 @@ pub fn add_entities(
     mut entities: EntitiesViewMut,
     asset_manager: UniqueView<AssetManager>,
     mut shadow_atlas: UniqueViewMut<ShadowAtlas>,
-    mut global_component: UniqueViewMut<GlobalComponent>,
     mut meshes: ViewMut<MeshComponent>,
     mut materials: ViewMut<MaterialComponent>,
     mut transforms: ViewMut<TransformComponent>,
@@ -288,6 +281,22 @@ pub fn add_entities(
         },
     };
     entities.add_entity((&mut lights, &mut transforms), (spot_light_component, spot_transform));
+}
+
+pub fn mipmap_system(
+    auto_mipmapper: UniqueViewMut<crate::renderer::auto_mipmapper::AutoMipmapper>,
+    asset_manager: UniqueView<AssetManager>,
+) {
+    let mut encoder = asset_manager.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Texture Mipmapping Encoder"),
+    });
+    let textures = asset_manager.get_all_textures();
+    for texture in textures.iter() {
+        if texture.mipmappable{
+            auto_mipmapper.generate_mipmaps(&mut encoder, &[texture.clone()], &[texture.mip_level_count]);
+        }
+    }
+    asset_manager.queue.submit(std::iter::once(encoder.finish()));
 }
 
 /// Handles keyboard input for the camera.
@@ -539,6 +548,14 @@ pub fn render_graph_system(
                 });
                 pass.set_pipeline(&pipeline);
                 pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
+                // Figure out how many lights we have.
+                let light_count = graphics.light_manager.light_storage.get_all_lights().len();
+                // Set the light count.
+                pass.set_push_constants(
+                    wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    0,
+                    bytemuck::cast_slice(&[light_count as u32]),
+                );
                 gbuffer_material.bind(&mut pass);
                 pass.draw(0..3, 0..1);
             }
