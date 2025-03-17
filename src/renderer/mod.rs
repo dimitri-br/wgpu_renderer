@@ -50,7 +50,7 @@ impl State {
             backends: if cfg!(target_arch = "wasm32") {
                 Backends::BROWSER_WEBGPU
             } else if cfg!(target_os = "macos") {
-                Backends::VULKAN
+                Backends::METAL
             } else {
                 Backends::PRIMARY
             },

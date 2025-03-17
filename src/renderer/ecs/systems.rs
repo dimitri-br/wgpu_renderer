@@ -16,6 +16,7 @@ use wgpu::{
 use winit::event::KeyEvent;
 
 use crate::renderer::asset_manager::AssetManager;
+use crate::renderer::auto_mipmapper::AutoMipmapper;
 use crate::renderer::ecs::camera_component::CameraComponent;
 use crate::renderer::ecs::global_component::GlobalComponent;
 use crate::renderer::ecs::light_manager::LightManager;
@@ -35,56 +36,33 @@ use crate::renderer::types::sampler::SamplerParameters;
 use crate::renderer::types::transform::Transform;
 
 /// Loads assets (meshes, textures, shaders, materials, and screen textures) into the asset manager.
+/// Loads assets (meshes, textures, shaders, materials, screen textures) into the asset manager.
 pub fn load_assets(
     state: UniqueViewMut<State>,
     mut asset_manager: UniqueViewMut<AssetManager>,
-    auto_mipmapper: UniqueViewMut<crate::renderer::auto_mipmapper::AutoMipmapper>,
     shadow_atlas: UniqueView<ShadowAtlas>,
 ) {
-    // Load meshes and textures.
-    let mesh = asset_manager.get_or_create_mesh("assets/capsule.obj");
-    let texture = asset_manager.get_or_create_texture("capsule_tex", "assets/capsule0.jpg", true);
-    let box_mesh = asset_manager.get_or_create_mesh("assets/cube.obj");
-    let white_texture = asset_manager.get_or_create_texture("white_tex", "assets/solid_white.png", false);
+    // Meshes & textures
+    let capsule_mesh = asset_manager.get_or_create_mesh("assets/capsule.obj");
+    let capsule_tex = asset_manager.get_or_create_texture("capsule_tex", "assets/capsule0.jpg", true);
+    let cube_mesh = asset_manager.get_or_create_mesh("assets/cube.obj");
+    let white_tex = asset_manager.get_or_create_texture("white_tex", "assets/solid_white.png", false);
 
-    // GBuffer setup.
+    // Screen textures (GBuffer)
     let screen_size = state.get_screen_size();
-    let albedo_texture = asset_manager.get_or_create_screen_texture(
-        "albedo_texture",
-        screen_size,
-        TextureFormat::Rgba16Float,
-    );
-    let normal_texture = asset_manager.get_or_create_screen_texture(
-        "normal_texture",
-        screen_size,
-        TextureFormat::Rgba16Float,
-    );
-    let depth_texture = asset_manager.get_or_create_screen_texture(
-        "depth_texture",
-        screen_size,
-        TextureFormat::Depth32Float,
-    );
-    let output_texture = asset_manager.get_or_create_screen_texture(
-        "output_texture",
-        screen_size,
-        TextureFormat::Rgba16Float,
-    );
+    let albedo_tex = asset_manager.get_or_create_screen_texture("albedo_texture", screen_size, TextureFormat::Rgba16Float);
+    let normal_tex = asset_manager.get_or_create_screen_texture("normal_texture", screen_size, TextureFormat::Rgba16Float);
+    let depth_tex = asset_manager.get_or_create_screen_texture("depth_texture", screen_size, TextureFormat::Depth32Float);
+    let output_tex = asset_manager.get_or_create_screen_texture("output_texture", screen_size, TextureFormat::Rgba16Float);
 
-    // Generate mipmaps for the texture.
-    let mut encoder = state.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("Texture Mipmapping Encoder"),
-    });
-    auto_mipmapper.generate_mipmaps(&mut encoder, &[texture.clone()], &[texture.mip_level_count]);
-    state.queue.submit(std::iter::once(encoder.finish()));
-
-    // Load shaders.
+    // Load shaders
     asset_manager.get_or_create_shader("main", "assets/shaders/shader.wgsl");
     asset_manager.get_or_create_shader("main_instanced", "assets/shaders/shader_instanced.wgsl");
     asset_manager.get_or_create_shader("shadow", "assets/shaders/shadow.wgsl");
     asset_manager.get_or_create_shader("gbuffer", "assets/shaders/deferred.wgsl");
     asset_manager.get_or_create_shader("invert", "assets/shaders/post_process.wgsl");
 
-    // Define a sampler.
+    // Sampler
     let sampler = SamplerParameters {
         address_mode_u: wgpu::AddressMode::ClampToEdge,
         address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -98,49 +76,79 @@ pub fn load_assets(
         ..Default::default()
     };
 
-    // Create materials using a helper.
-    create_material_with(&mut asset_manager, "capsule_mat", "main_instanced", true,|material| {
-        material.set_cull_mode(None);
-        material.set_depth(true);
-        material.set_transparent(false);
-        material.set_texture("color_texture", texture.view.clone());
-        material.set_sampler("color_sampler", sampler.clone());
-    });
+    // Materials
+    create_material_with(
+        &mut asset_manager,
+        "capsule_mat",
+        "main_instanced",
+        true,
+        |material| {
+            material.set_cull_mode(None);
+            material.set_depth(true);
+            material.set_transparent(false);
+            material.set_texture("color_texture", capsule_tex.view.clone());
+            material.set_sampler("color_sampler", sampler.clone());
+        },
+    );
 
-    create_material_with(&mut asset_manager, "box_mat", "main_instanced",  false,|material| {
-        material.set_cull_mode(None);
-        material.set_depth(true);
-        material.set_transparent(false);
-        material.set_texture("color_texture", white_texture.view.clone());
-        material.set_sampler("color_sampler", sampler.clone());
-    });
+    create_material_with(
+        &mut asset_manager,
+        "box_mat",
+        "main_instanced",
+        true,
+        |material| {
+            material.set_cull_mode(None);
+            material.set_depth(true);
+            material.set_transparent(false);
+            material.set_texture("color_texture", white_tex.view.clone());
+            material.set_sampler("color_sampler", sampler.clone());
+        },
+    );
 
-    create_material_with(&mut asset_manager, "gbuffer_mat", "gbuffer", false, |material| {
-        material.set_cull_mode(Some(wgpu::Face::Back));
-        material.set_depth(false);
-        material.set_transparent(false);
-        material.set_texture("g_albedo", albedo_texture.view.clone());
-        material.set_texture("g_normal", normal_texture.view.clone());
-        material.set_texture("g_depth", depth_texture.view.clone());
-        material.set_sampler("g_sampler", sampler.clone());
-        material.set_sampler("shadow_sampler", shadow_atlas.shadow_sampler.clone());
-    });
+    create_material_with(
+        &mut asset_manager,
+        "gbuffer_mat",
+        "gbuffer",
+        false,
+        |material| {
+            material.set_cull_mode(Some(wgpu::Face::Back));
+            material.set_depth(false);
+            material.set_transparent(false);
+            material.set_texture("g_albedo", albedo_tex.view.clone());
+            material.set_texture("g_normal", normal_tex.view.clone());
+            material.set_texture("g_depth", depth_tex.view.clone());
+            material.set_sampler("g_sampler", sampler.clone());
+            material.set_sampler("shadow_sampler", shadow_atlas.shadow_sampler.clone());
+        },
+    );
 
-    create_material_with(&mut asset_manager, "invert_mat", "invert", false, |material| {
-        material.set_cull_mode(Some(wgpu::Face::Front));
-        material.set_depth(false);
-        material.set_transparent(false);
-        material.set_sampler("u_sampler", sampler.clone());
-    });
+    create_material_with(
+        &mut asset_manager,
+        "invert_mat",
+        "invert",
+        false,
+        |material| {
+            material.set_cull_mode(Some(wgpu::Face::Front));
+            material.set_depth(false);
+            material.set_transparent(false);
+            material.set_sampler("u_sampler", sampler.clone());
+        },
+    );
 
-    create_material_with(&mut asset_manager, "shadow_mat", "shadow", false,|material| {
-        material.set_cull_mode(Some(wgpu::Face::Front));
-        material.set_depth(true);
-        material.set_transparent(false);
-    });
+    create_material_with(
+        &mut asset_manager,
+        "shadow_mat",
+        "shadow",
+        false,
+        |material| {
+            material.set_cull_mode(Some(wgpu::Face::Front));
+            material.set_depth(true);
+            material.set_transparent(false);
+        },
+    );
 }
 
-/// Helper to create materials.
+/// Helper to create a material with a configuration callback.
 fn create_material_with<F>(
     asset_manager: &mut AssetManager,
     name: &str,
@@ -156,7 +164,7 @@ where
     material
 }
 
-/// Adds entities to the ECS world.
+/// Spawns some default entities into the ECS (ground, box, capsules, lights).
 pub fn add_entities(
     mut entities: EntitiesViewMut,
     asset_manager: UniqueView<AssetManager>,
@@ -164,13 +172,13 @@ pub fn add_entities(
     mut meshes: ViewMut<MeshComponent>,
     mut materials: ViewMut<MaterialComponent>,
     mut transforms: ViewMut<TransformComponent>,
-    mut shadow_cast_component: ViewMut<ShadowCastComponent>,
+    mut shadow_cast: ViewMut<ShadowCastComponent>,
     mut lights: ViewMut<LightComponent>,
     mut light_manager: UniqueViewMut<LightManager>,
 ) {
-    // Ground entity.
+    // Ground
     entities.add_entity(
-        (&mut meshes, &mut materials, &mut transforms, &mut shadow_cast_component),
+        (&mut meshes, &mut materials, &mut transforms, &mut shadow_cast),
         (
             MeshComponent {
                 mesh: asset_manager.get_mesh_by_name("assets/cube.obj").unwrap(),
@@ -190,9 +198,9 @@ pub fn add_entities(
         ),
     );
 
-    // Box entity.
+    // Box
     entities.add_entity(
-        (&mut meshes, &mut materials, &mut transforms, &mut shadow_cast_component),
+        (&mut meshes, &mut materials, &mut transforms, &mut shadow_cast),
         (
             MeshComponent {
                 mesh: asset_manager.get_mesh_by_name("assets/cube.obj").unwrap(),
@@ -212,19 +220,19 @@ pub fn add_entities(
         ),
     );
 
-    // Spawn many renderable entities.
+    // Capsules
     entities.bulk_add_entity(
-        (&mut meshes, &mut materials, &mut transforms, &mut shadow_cast_component),
+        (&mut meshes, &mut materials, &mut transforms, &mut shadow_cast),
         (0..40).map(|_| {
-            let mesh_component = MeshComponent {
+            let mesh_comp = MeshComponent {
                 mesh: asset_manager.get_mesh_by_name("assets/capsule.obj").unwrap(),
             };
-            let material_component = MaterialComponent {
+            let mat_comp = MaterialComponent {
                 material: asset_manager.get_material_by_name("capsule_mat").unwrap(),
             };
             let mut transform = Transform::new();
-            let x: f32 = random::<f32>() * 30.0 - 15.0;
-            let z: f32 = random::<f32>() * 30.0 - 15.0;
+            let x = random::<f32>() * 30.0 - 15.0;
+            let z = random::<f32>() * 30.0 - 15.0;
             transform.translate(vec3(x * 2.0 - 10.0, 0.0, z * 2.0 - 10.0));
             transform.rotate(glam::Quat::from_euler(
                 glam::EulerRot::YXZ,
@@ -233,24 +241,19 @@ pub fn add_entities(
                 random::<f32>() * 360.0,
             ));
             transform.scale(vec3(0.5, 0.5, 0.5));
-            (
-                mesh_component,
-                material_component,
-                TransformComponent { transform },
-                ShadowCastComponent { shadow_cast: true },
-            )
+            (mesh_comp, mat_comp, TransformComponent { transform }, ShadowCastComponent { shadow_cast: true })
         }),
     );
 
-    // Create a directional light using the manager.
+    // Directional light
     let dir_light = light_manager.create_directional_light(&mut shadow_atlas);
-    let dir_light_component = LightComponent::new(dir_light, LightType::Directional);
+    let dir_comp = LightComponent::new(dir_light, LightType::Directional);
     entities.add_entity(
         (&mut lights, &mut transforms),
-        (dir_light_component, TransformComponent { transform: Transform::new() }),
+        (dir_comp, TransformComponent { transform: Transform::new() }),
     );
 
-    // Create point lights.
+    // Point lights
     for _ in 0..4 {
         let position = vec3(
             random::<f32>() * 25.0 - 12.5,
@@ -265,20 +268,30 @@ pub fn add_entities(
         let intensity = random::<f32>() * 5.0 + 2.5;
         let range = 15.0;
         let point_light = light_manager.create_point_light(position, color, intensity, range, &mut shadow_atlas);
-        let point_light_component = LightComponent::new(point_light, LightType::Point);
-        let transform_component = TransformComponent { transform: Transform::new() };
-        entities.add_entity((&mut lights, &mut transforms), (point_light_component, transform_component));
+        let point_comp = LightComponent::new(point_light, LightType::Point);
+        entities.add_entity(
+            (&mut lights, &mut transforms),
+            (point_comp, TransformComponent { transform: Transform::new() }),
+        );
     }
 
-    // Create a spotlight.
+    // Spotlight
     let spot_position = vec3(-8.0, 2.0, 0.0);
     let spot_direction = vec3(0.5, -0.2, 0.0);
     let spot_color = vec3(1.0, 1.0, 0.8);
     let spot_intensity = 2.0;
     let spot_range = 40.0;
     let spot_angle = std::f32::consts::FRAC_PI_6;
-    let spot_light = light_manager.create_spot_light(spot_position, spot_direction, spot_color, spot_intensity, spot_range, spot_angle, &mut shadow_atlas);
-    let spot_light_component = LightComponent::new(spot_light, LightType::Spot);
+    let spot_light = light_manager.create_spot_light(
+        spot_position,
+        spot_direction,
+        spot_color,
+        spot_intensity,
+        spot_range,
+        spot_angle,
+        &mut shadow_atlas,
+    );
+    let spot_comp = LightComponent::new(spot_light, LightType::Spot);
     let spot_transform = TransformComponent {
         transform: {
             let mut t = Transform::new();
@@ -286,26 +299,27 @@ pub fn add_entities(
             t
         },
     };
-    entities.add_entity((&mut lights, &mut transforms), (spot_light_component, spot_transform));
+    entities.add_entity((&mut lights, &mut transforms), (spot_comp, spot_transform));
 }
 
+/// Generates mipmaps for any texture that supports it.
 pub fn mipmap_system(
-    auto_mipmapper: UniqueViewMut<crate::renderer::auto_mipmapper::AutoMipmapper>,
+    mut auto_mipmapper: UniqueViewMut<AutoMipmapper>,
     asset_manager: UniqueView<AssetManager>,
 ) {
     let mut encoder = asset_manager.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Texture Mipmapping Encoder"),
     });
     let textures = asset_manager.get_all_textures();
-    for texture in textures.iter() {
-        if texture.mipmappable{
-            auto_mipmapper.generate_mipmaps(&mut encoder, &[texture.clone()], &[texture.mip_level_count]);
+    for tex in textures.iter() {
+        if tex.mipmappable {
+            auto_mipmapper.generate_mipmaps(&mut encoder, &[tex.clone()], &[tex.mip_level_count]);
         }
     }
     asset_manager.queue.submit(std::iter::once(encoder.finish()));
 }
 
-/// Handles keyboard input for the camera.
+/// For keyboard input (e.g., WASD).
 pub fn handle_keyboard_input(
     key_event: KeyEvent,
     mut camera_component: UniqueViewMut<CameraComponent>,
@@ -313,7 +327,7 @@ pub fn handle_keyboard_input(
     camera_component.camera.process_keyboard(key_event);
 }
 
-/// Handles mouse input for the camera.
+/// For mouse input (pitch/yaw).
 pub fn handle_mouse_input(
     delta: (f64, f64),
     mut camera_component: UniqueViewMut<CameraComponent>,
@@ -321,7 +335,7 @@ pub fn handle_mouse_input(
     camera_component.camera.process_mouse(delta.0 as f32, delta.1 as f32);
 }
 
-/// Handles window resize events.
+/// Resizes relevant resources on window resize.
 pub fn resize_system(
     (width, height): (u32, u32),
     mut state: UniqueViewMut<State>,
@@ -340,26 +354,26 @@ pub fn resize_system(
     asset_manager.replace_screen_texture("depth_texture", (width, height), TextureFormat::Depth32Float, false);
 
     let gbuffer_material = asset_manager.get_material_by_name("gbuffer_mat").unwrap();
-    let albedo_tex = asset_manager.get_texture_by_name("albedo_texture").unwrap();
-    let normal_tex = asset_manager.get_texture_by_name("normal_texture").unwrap();
-    let depth_tex = asset_manager.get_texture_by_name("depth_texture").unwrap();
-    let output_tex = asset_manager.get_texture_by_name("output_texture").unwrap();
-    gbuffer_material.set_texture("g_albedo", albedo_tex.view.clone());
-    gbuffer_material.set_texture("g_normal", normal_tex.view.clone());
-    gbuffer_material.set_texture("g_depth", depth_tex.view.clone());
+    let albedo = asset_manager.get_texture_by_name("albedo_texture").unwrap();
+    let normal = asset_manager.get_texture_by_name("normal_texture").unwrap();
+    let depth = asset_manager.get_texture_by_name("depth_texture").unwrap();
+    let output = asset_manager.get_texture_by_name("output_texture").unwrap();
+
+    gbuffer_material.set_texture("g_albedo", albedo.view.clone());
+    gbuffer_material.set_texture("g_normal", normal.view.clone());
+    gbuffer_material.set_texture("g_depth", depth.view.clone());
     gbuffer_material.set_texture("shadow_map", shadow_atlas.texture.view.clone());
 
-    let post_processing_material = asset_manager.get_material_by_name("invert_mat").unwrap();
-    post_processing_material.set_texture("u_texture", output_tex.view.clone());
+    let post_mat = asset_manager.get_material_by_name("invert_mat").unwrap();
+    post_mat.set_texture("u_texture", output.view.clone());
 }
 
-/// Updates global state, camera, and uniform buffers.
+/// Updates global time, camera, and uniform buffers, plus rebuilds the render batch.
 pub fn update_system(
     mut state: UniqueViewMut<State>,
-    mut global_component: UniqueViewMut<GlobalComponent>,
-    mut camera_component: UniqueViewMut<CameraComponent>,
+    mut global_comp: UniqueViewMut<GlobalComponent>,
+    mut camera_comp: UniqueViewMut<CameraComponent>,
     mut render_batcher: UniqueViewMut<RenderBatcher>,
-    // Mesh, material, and transform components.
     meshes: View<MeshComponent>,
     materials: View<MaterialComponent>,
     transforms: View<TransformComponent>,
@@ -369,55 +383,59 @@ pub fn update_system(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs_f32();
-    global_component.global_data.update(time);
-    camera_component.camera.update(state.delta_time);
-    global_component.global_data.update_from_camera(camera_component.camera.deref());
-    global_component.global_uniform_buffer.update(&global_component.global_data);
 
+    global_comp.global_data.update(time);
+    camera_comp.camera.update(state.delta_time);
+    global_comp.global_data.update_from_camera(camera_comp.camera.deref());
+    global_comp.global_uniform_buffer.update(&global_comp.global_data);
+
+    // Rebuild the render batch
     render_batcher.clear();
-    (&meshes, &materials, &transforms).iter().for_each(|(mesh, material, transform)| {
-        render_batcher.add(mesh.mesh.clone(), material.material.clone(), transform.transform.clone());
-    });
-}
-
-pub fn update_lighting(
-    mut light_update: LightUpdateViewMut,
-    mut lights: shipyard::ViewMut<LightComponent>,
-) {
-    // Collect all lights into a contiguous vector.
-    let mut light_data: Vec<Light> = lights.iter().map(|lc| lc.light.clone()).collect();
-
-    // Use the custom view to update all lights in batch.
-    light_update.light_manager.update_lights(&mut light_data, &light_update.camera_component.camera);
-
-    // Write back the updated light data to each LightComponent.
-    for (mut light_comp, updated_light) in (&mut lights).iter().zip(light_data.into_iter()) {
-        light_comp.light = updated_light;
+    for (mesh, material, transform) in (&meshes, &materials, &transforms).iter() {
+        render_batcher.add(
+            mesh.mesh.clone(),
+            material.material.clone(),
+            transform.transform.clone(),
+        );
     }
 }
 
-/// This function builds a contiguous array of InstanceData from the batcher's instanced commands,
-/// and computes the group offsets mapping. Then it updates the InstancingComponent.
-pub fn update_instancing(batcher: UniqueView<RenderBatcher>, mut instancing: UniqueViewMut<InstancingComponent>) {
-    let mut cpu_instance_data = Vec::new();
-    let mut group_offsets = HashMap::new();
-    let mut total_instances = 0;
+/// Updates lights in bulk via the LightManager.
+pub fn update_lighting(
+    mut light_update: LightUpdateViewMut,
+    mut lights: ViewMut<LightComponent>,
+) {
+    let mut light_data: Vec<Light> = lights.iter().map(|lc| lc.light.clone()).collect();
+    light_update.light_manager.update_lights(&mut light_data, &light_update.camera_component.camera);
+
+    for (mut lc, updated) in (&mut lights).iter().zip(light_data.into_iter()) {
+        lc.light = updated;
+    }
+}
+
+/// Builds a contiguous array of InstanceData from the batcher, then updates the InstancingComponent.
+pub fn update_instancing(
+    batcher: UniqueView<RenderBatcher>,
+    mut instancing: UniqueViewMut<InstancingComponent>,
+) {
+    let mut cpu_data = Vec::new();
+    let mut offsets = HashMap::new();
+    let mut total = 0;
 
     for command in &batcher.commands {
         if let RenderCommand::Instanced { mesh, material, transforms } = command {
-            // Assume each mesh and material exposes a unique ID (as u64).
             let key = (Arc::as_ptr(&mesh) as u64, Arc::as_ptr(&material) as u64);
-            group_offsets.insert(key, (total_instances as u32, transforms.len() as u32));
-            for transform in transforms {
-                cpu_instance_data.push(InstanceData {
-                    model: transform.matrix,
-                    normal_matrix: transform.normal_matrix,
+            offsets.insert(key, (total, transforms.len() as u32));
+            for t in transforms {
+                cpu_data.push(InstanceData {
+                    model: t.matrix,
+                    normal_matrix: t.normal_matrix,
                 });
-                total_instances += 1;
+                total += 1;
             }
         }
     }
-    instancing.update(&cpu_instance_data, group_offsets);
+    instancing.update(&cpu_data, offsets);
 }
 
 /// Helper to create a RenderPassColorAttachment with a clear color.
