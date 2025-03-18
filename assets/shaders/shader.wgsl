@@ -84,7 +84,7 @@ struct FragmentInput {
 
 struct FragmentOutput {
     @location(0) color_rgba16float: vec4<f32>,
-    @location(1) normal_rgba16float: vec4<f32>,
+    @location(1) normal_rg16snorm: vec4<f32>,
 };
 
 @group(1) @binding(0)
@@ -101,7 +101,7 @@ fn gb_fs_main(input: FragmentInput) -> FragmentOutput {
 
     // Encode the normal from [-1,1] into [0,1]
     // We assume 'input.normal' is already normalized in the vertex shader.
-    output.normal_rgba16float = vec4<f32>(input.normal * 0.5 + vec3<f32>(0.5), 1.0);
+    output.normal_rg16snorm = vec4<f32>(input.normal * 0.5 + vec3<f32>(0.5), 1.0);
 
     return output;
 }

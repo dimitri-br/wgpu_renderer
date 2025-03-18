@@ -22,7 +22,7 @@ pub struct PipelineParams {
     pub transparent: bool,
     pub cull_mode: Option<Face>,
     pub front_face: FrontFace,
-    pub use_depth: bool
+    pub use_depth: (bool, wgpu::TextureFormat),
 }
 
 impl Default for PipelineParams {
@@ -31,7 +31,7 @@ impl Default for PipelineParams {
             transparent: false,
             cull_mode: Some(Face::Back),
             front_face: FrontFace::Ccw,
-            use_depth: true
+            use_depth: (false, wgpu::TextureFormat::Depth24Plus),
         }
     }
 }
@@ -116,9 +116,10 @@ impl Material {
         }
     }
 
-    pub fn set_depth(&self, use_depth: bool){
-        if self.pipeline_params.read().unwrap().use_depth != use_depth{
-            self.pipeline_params.write().unwrap().use_depth = use_depth;
+    pub fn set_depth(&self, use_depth: bool, format: wgpu::TextureFormat){
+        if self.pipeline_params.read().unwrap().use_depth.0 != use_depth{
+            self.pipeline_params.write().unwrap().use_depth = (use_depth, format);
+            println!("Setting depth: {:?}", self.pipeline_params.read().unwrap().use_depth);
             self.cached_pipeline.write().unwrap().take();
         }
     }
@@ -135,7 +136,7 @@ impl Material {
         self.pipeline_params.read().unwrap().front_face
     }
 
-    pub fn get_depth(&self) -> bool{
+    pub fn get_depth(&self) -> (bool, wgpu::TextureFormat){
         self.pipeline_params.read().unwrap().use_depth
     }
 
@@ -177,18 +178,15 @@ impl Material {
                 primitive.cull_mode = pipeline_params.cull_mode;
                 // Front Face
                 primitive.front_face = pipeline_params.front_face;
-                desc.depth_stencil = if pipeline_params.use_depth {
+                desc.depth_stencil = if pipeline_params.use_depth.0 {
+                    println!("Using depth: {:?}", pipeline_params.use_depth.1);
                     Some(
                         DepthStencilState{
-                            format: wgpu::TextureFormat::Depth32Float,
+                            format: pipeline_params.use_depth.1,
                             depth_write_enabled: true,
                             depth_compare: wgpu::CompareFunction::LessEqual,
                             stencil: StencilState::default(),
-                            bias: DepthBiasState {
-                                constant: 4,
-                                slope_scale: 1.5,
-                                clamp: 0.0,
-                            }
+                            bias: DepthBiasState::default(),
                         }
                     )
                 }else{

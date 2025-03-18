@@ -78,7 +78,10 @@ impl State {
         let (device, queue) = match adapter.request_device(
             &DeviceDescriptor {
                 label: None,
-                required_features: Features::PUSH_CONSTANTS,
+                required_features: Features::PUSH_CONSTANTS
+                    | Features::TEXTURE_COMPRESSION_BC
+                | Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+                | Features::TEXTURE_FORMAT_16BIT_NORM,
                 required_limits: Limits {
                     max_push_constant_size: 128,
                     max_texture_dimension_2d: 16384,

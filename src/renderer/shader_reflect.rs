@@ -783,6 +783,9 @@ impl Shader {
                     name if name.contains("rg16uint") => TextureFormat::Rg16Uint,
                     name if name.contains("rg16sint") => TextureFormat::Rg16Sint,
                     name if name.contains("rg16float") => TextureFormat::Rg16Float,
+                    name if name.contains("rg16unorm") => TextureFormat::Rg16Unorm,
+                    name if name.contains("rg16snorm") => TextureFormat::Rg16Snorm,
+                    name if name.contains("rg16float") => TextureFormat::Rg16Float,
                     name if name.contains("rgba8unorm_srgb") => TextureFormat::Rgba8UnormSrgb,
                     name if name.contains("rgba8unorm") => TextureFormat::Rgba8Unorm,
                     name if name.contains("rgba8snorm") => TextureFormat::Rgba8Snorm,
@@ -800,6 +803,21 @@ impl Shader {
                     name if name.contains("rgba32uint") => TextureFormat::Rgba32Uint,
                     name if name.contains("rgba32sint") => TextureFormat::Rgba32Sint,
                     name if name.contains("rgba32float") => TextureFormat::Rgba32Float,
+                    // Bc formats
+                    name if name.contains("bc1_rgba_srgb") => TextureFormat::Bc1RgbaUnormSrgb,
+                    name if name.contains("bc1_rgba") => TextureFormat::Bc1RgbaUnorm,
+                    name if name.contains("bc2_rgba_srgb") => TextureFormat::Bc2RgbaUnormSrgb,
+                    name if name.contains("bc2_rgba") => TextureFormat::Bc2RgbaUnorm,
+                    name if name.contains("bc3_rgba_srgb") => TextureFormat::Bc3RgbaUnormSrgb,
+                    name if name.contains("bc3_rgba") => TextureFormat::Bc3RgbaUnorm,
+                    name if name.contains("bc4_rsnorm") => TextureFormat::Bc4RSnorm,
+                    name if name.contains("bc4_runorm") => TextureFormat::Bc4RUnorm,
+                    name if name.contains("bc5_rgsnorm") => TextureFormat::Bc5RgSnorm,
+                    name if name.contains("bc5_rgunorm") => TextureFormat::Bc5RgUnorm,
+                    name if name.contains("bc6h_rgbufloat") => TextureFormat::Bc6hRgbUfloat,
+                    name if name.contains("bc6h_rgbfloat") => TextureFormat::Bc6hRgbFloat,
+                    name if name.contains("bc7_rgbaunorm_srgb") => TextureFormat::Bc7RgbaUnormSrgb,
+                    name if name.contains("bc7_rgbaunorm") => TextureFormat::Bc7RgbaUnorm,
                     _ => {
                         error!("Unsupported texture format: {:?}", name);
                         return Err("Unsupported texture format");

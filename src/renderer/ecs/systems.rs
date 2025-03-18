@@ -51,8 +51,8 @@ pub fn load_assets(
     // Screen textures (GBuffer)
     let screen_size = state.get_screen_size();
     let albedo_tex = asset_manager.get_or_create_screen_texture("albedo_texture", screen_size, TextureFormat::Rgba16Float);
-    let normal_tex = asset_manager.get_or_create_screen_texture("normal_texture", screen_size, TextureFormat::Rgba16Float);
-    let depth_tex = asset_manager.get_or_create_screen_texture("depth_texture", screen_size, TextureFormat::Depth32Float);
+    let normal_tex = asset_manager.get_or_create_screen_texture("normal_texture", screen_size, TextureFormat::Rg16Snorm);
+    let depth_tex = asset_manager.get_or_create_screen_texture("depth_texture", screen_size, TextureFormat::Depth16Unorm);
     let output_tex = asset_manager.get_or_create_screen_texture("output_texture", screen_size, TextureFormat::Rgba16Float);
 
     // Load shaders
@@ -85,7 +85,7 @@ pub fn load_assets(
         true,
         |material| {
             material.set_cull_mode(None);
-            material.set_depth(true);
+            material.set_depth(true, wgpu::TextureFormat::Depth16Unorm);
             material.set_transparent(false);
             material.set_texture("color_texture", capsule_tex.view.clone());
             material.set_sampler("color_sampler", sampler.clone());
@@ -100,7 +100,7 @@ pub fn load_assets(
         true,
         |material| {
             material.set_cull_mode(None);
-            material.set_depth(true);
+            material.set_depth(true, wgpu::TextureFormat::Depth16Unorm);
             material.set_transparent(false);
             material.set_texture("color_texture", white_tex.view.clone());
             material.set_sampler("color_sampler", sampler.clone());
@@ -115,7 +115,7 @@ pub fn load_assets(
         false,
         |material| {
             material.set_cull_mode(Some(wgpu::Face::Back));
-            material.set_depth(false);
+            material.set_depth(false, wgpu::TextureFormat::Depth16Unorm);
             material.set_transparent(false);
             material.set_texture("g_albedo", albedo_tex.view.clone());
             material.set_texture("g_normal", normal_tex.view.clone());
@@ -133,7 +133,7 @@ pub fn load_assets(
         false,
         |material| {
             material.set_cull_mode(Some(wgpu::Face::Front));
-            material.set_depth(false);
+            material.set_depth(false, wgpu::TextureFormat::Depth16Unorm);
             material.set_transparent(false);
             material.set_sampler("u_sampler", sampler.clone());
         },
@@ -147,7 +147,7 @@ pub fn load_assets(
         false,
         |material| {
             material.set_cull_mode(Some(wgpu::Face::Front));
-            material.set_depth(true);
+            material.set_depth(true, wgpu::TextureFormat::Depth24Plus);
             material.set_transparent(false);
         },
     );
@@ -356,8 +356,8 @@ pub fn resize_system(
 
     asset_manager.replace_screen_texture("output_texture", (width, height), TextureFormat::Rgba16Float, false);
     asset_manager.replace_screen_texture("albedo_texture", (width, height), TextureFormat::Rgba16Float, false);
-    asset_manager.replace_screen_texture("normal_texture", (width, height), TextureFormat::Rgba16Float, false);
-    asset_manager.replace_screen_texture("depth_texture", (width, height), TextureFormat::Depth32Float, false);
+    asset_manager.replace_screen_texture("normal_texture", (width, height), TextureFormat::Rg16Snorm, false);
+    asset_manager.replace_screen_texture("depth_texture", (width, height), TextureFormat::Depth16Unorm, false);
 
     let gbuffer_material = asset_manager.get_material_by_name("gbuffer_mat").unwrap();
     let albedo = asset_manager.get_texture_by_name("albedo_texture").unwrap();
@@ -507,7 +507,7 @@ pub fn render_graph_system(
                 for command in &graphics.render_batcher.commands {
                     match command {
                         RenderCommand::Instanced { mesh, material, transforms: _ } => {
-                            if !material.get_depth(){
+                            if !material.get_depth().0{
                                 continue;
                             }
                             pass.set_pipeline(&material.get_pipeline());
@@ -527,7 +527,7 @@ pub fn render_graph_system(
                             }
                         }
                         RenderCommand::Single { mesh, material, transform } => {
-                            if !material.get_depth(){
+                            if !material.get_depth().0{
                                 continue;
                             }
                             pass.set_pipeline(&material.get_pipeline());
@@ -549,7 +549,7 @@ pub fn render_graph_system(
     // Shadow Pass Node
     render_graph.add_node(RenderGraphNode {
         name: "shadow_pass".into(),
-        dependencies: vec!["depth_pass".into()],
+        dependencies: vec![],
         execute: Box::new(|ctx: &mut RenderGraphContext| {
             let shadow_material = ctx.asset_manager.get_material_by_name("shadow_mat").unwrap();
             let shadow_view = ctx.shadow_atlas_view.clone();
@@ -662,7 +662,7 @@ pub fn render_graph_system(
     // GBuffer Composite Pass Node.
     render_graph.add_node(RenderGraphNode {
         name: "gbuffer_pass".into(),
-        dependencies: vec!["shadow_pass".into()],
+        dependencies: vec!["depth_pass".into(), "shadow_pass".into()],
         execute: Box::new(|ctx: &mut RenderGraphContext| {
             let output = ctx.asset_manager.get_texture_by_name("output_texture").unwrap();
             let gbuffer_material = ctx.asset_manager.get_material_by_name("gbuffer_mat").unwrap();

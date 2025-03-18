@@ -49,7 +49,7 @@ impl LightManager {
             Mat4::IDENTITY, // Will be updated each frame.
             tile.read().unwrap().uv_offset,
             tile.read().unwrap().uv_scale,
-            0.0015,
+            0.000015,
         );
         let smc = crate::renderer::ecs::components::ShadowMapComponent::new(shadow_data, tile);
         let idx = self.shadow_data_storage.add_shadow_data(smc);
@@ -158,6 +158,7 @@ impl LightManager {
         let camera_pos = camera.position();
         let light_dir = -light.rotation.normalize();
         let scene_center = camera_pos;
+        let scene_center = vec3(scene_center.x, 5.0, scene_center.z);
         let light_distance = -50.0;
         let light_pos = scene_center - light_dir * light_distance;
         let light_view = Mat4::look_at_rh(light_pos, scene_center, glam::Vec3::Y);
@@ -169,20 +170,6 @@ impl LightManager {
         let far = 100.0;
         let proj = Mat4::orthographic_rh(left, right, bottom, top, near, far);
         let mut light_view_proj = proj * light_view;
-
-        // Shadow snapping.
-        let camera_pos_ls = light_view * vec4(camera_pos.x, camera_pos.y, camera_pos.z, 1.0);
-        let ortho_width = right - left;
-        let shadow_resolution = 2048.0;
-        let texel_size = ortho_width / shadow_resolution;
-        let snapped_x = (camera_pos_ls.x / texel_size).round() * texel_size;
-        let snapped_y = (camera_pos_ls.y / texel_size).round() * texel_size;
-        let snap_offset = glam::Mat4::from_translation(vec3(
-            snapped_x - camera_pos_ls.x,
-            snapped_y - camera_pos_ls.y,
-            0.0,
-        ));
-        light_view_proj = snap_offset * light_view_proj;
 
         // Update each shadow tile.
         for i in 0..light.shadow_data_count {

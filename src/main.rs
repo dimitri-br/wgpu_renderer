@@ -42,7 +42,7 @@ fn main() {
         state.bind_group_cache.clone(),
     );
     let auto_mipmapper = AutoMipmapper::new(state.device.clone(), wgpu::TextureFormat::Rgba8UnormSrgb);
-    let shadow_atlas = ShadowAtlas::new(&state.device.clone(), 2048*4, 2048*4, wgpu::TextureFormat::Depth32Float);
+    let shadow_atlas = ShadowAtlas::new(&state.device.clone(), 2048*4, 2048*4, wgpu::TextureFormat::Depth24Plus);
     let light_manager = LightManager::new(state.device.clone(), state.queue.clone());
     let global_component = GlobalComponent::new(&state, &light_manager.shadow_data_storage, &light_manager.light_storage);
     let instancing_component = InstancingComponent::new(state.device.clone(), state.queue.clone(), 1000);
