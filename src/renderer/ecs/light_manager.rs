@@ -15,6 +15,7 @@ use crate::renderer::shadow_atlas::ShadowAtlas;
 pub struct LightManager {
     pub light_storage: LightStorage,
     pub shadow_data_storage: ShadowDataStorage,
+    pub light_cache: Vec<Light>,
 }
 
 impl LightManager {
@@ -25,6 +26,7 @@ impl LightManager {
         Self {
             light_storage,
             shadow_data_storage,
+            light_cache: Vec::new(),
         }
     }
 
@@ -39,7 +41,7 @@ impl LightManager {
         let intensity = 0.5;
         let range = 100.0;
         let spot_angle = 0.0; // Not used.
-        let mut light = Light::new(position, direction, color, intensity, range, spot_angle, LightType::Directional);
+        let mut light = Light::new(position, direction, color, intensity, range, spot_angle, true, LightType::Directional);
 
         // Allocate one tile for shadow mapping.
         let tile = shadow_atlas
@@ -67,7 +69,7 @@ impl LightManager {
         shadow_atlas: &mut ShadowAtlas,
     ) -> Light {
         let rotation = vec3(0.0, 0.0, 0.0);
-        let mut light = Light::new(position, rotation, color, intensity, range, 0.0, LightType::Point);
+        let mut light = Light::new(position, rotation, color, intensity, range, 0.0, true, LightType::Point);
 
         let proj = Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.1, range);
         let views = [
@@ -79,7 +81,7 @@ impl LightManager {
             Mat4::look_at_rh(position, position + vec3(0.0, 0.0, -1.0), vec3(0.0, -1.0, 0.0)),
         ];
 
-        let shadow_map_resolution = 1024;
+        let shadow_map_resolution = 256;
         let mut start_index: u32 = 0;
         for i in 0..6 {
             let tile = shadow_atlas
@@ -112,11 +114,11 @@ impl LightManager {
         spot_angle: f32,
         shadow_atlas: &mut ShadowAtlas,
     ) -> Light {
-        let mut light = Light::new(position, direction, color, intensity, range, spot_angle, LightType::Spot);
+        let mut light = Light::new(position, direction, color, intensity, range, spot_angle, true, LightType::Spot);
         let proj = Mat4::perspective_rh(spot_angle * 2.0, 1.0, 0.01, range);
         let view = Mat4::look_at_rh(position, position + direction, vec3(0.0, 1.0, 0.0));
         let tile = shadow_atlas
-            .allocate_tile(512, 512)
+            .allocate_tile(256, 256)
             .expect("Failed to allocate spotlight shadow tile");
         let shadow_data = ShadowData::new(
             proj * view,
@@ -134,7 +136,12 @@ impl LightManager {
     /// This function iterates over the lights, dispatching the update logic based on type,
     /// then batches the updated lights and shadow data to the GPU.
     pub fn update_lights(&mut self, lights: &mut [Light], camera: &Box<dyn Camera>) {
-        for light in lights.iter_mut() {
+        for (idx, light) in lights.iter_mut().enumerate() {
+            if let Some(cached_light) = self.light_cache.get(idx) {
+                if light.position == cached_light.position || light.rotation == cached_light.rotation {
+                    continue;
+                }
+            }
             match LightType::from_u32(light.light_type) {
                 LightType::Directional => {
                     Self::update_directional_light(light, camera, &mut self.shadow_data_storage)
@@ -152,6 +159,9 @@ impl LightManager {
         self.light_storage.set_all_lights(lights.to_vec());
         self.light_storage.update();
         self.shadow_data_storage.update();
+
+        // Cache the updated lights.
+        self.light_cache = lights.to_vec();
     }
 
     fn update_directional_light(light: &mut Light, camera: &Box<dyn Camera>, shadow_storage: &mut ShadowDataStorage) {

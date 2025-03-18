@@ -73,7 +73,6 @@ impl State {
             }
         };
 
-        println!("FDSAAS");
 
         let (device, queue) = match adapter.request_device(
             &DeviceDescriptor {
@@ -97,9 +96,7 @@ impl State {
                 panic!("Failed to create device and queue");
             }
         };
-
-        println!("Here!@");
-
+        
         let size = window.inner_size();
         let surface_format = TextureFormat::Bgra8UnormSrgb;
         let surface_config = SurfaceConfiguration {

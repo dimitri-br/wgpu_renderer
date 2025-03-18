@@ -90,15 +90,13 @@ impl GpuMesh {
     }
 
     pub fn draw_instanced<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, start_instance: u32, instance_count: u32) {
-        println!("drawing {}..{} indexed", start_instance, instance_count);
-        println!("Number of submeshes: {}", self.submeshes.len());
         for subm in &self.submeshes {
             pass.set_vertex_buffer(0, subm.vertex_buffer.slice(..));
             if let Some(ibuf) = &subm.index_buffer {
                 pass.set_index_buffer(ibuf.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..subm.index_count, 0, start_instance..instance_count);
+                pass.draw_indexed(0..subm.index_count, 0, start_instance..(start_instance + instance_count));
             } else {
-                pass.draw(0..subm.vertex_count, start_instance..instance_count);
+                pass.draw(0..subm.vertex_count, start_instance..(start_instance + instance_count));
             }
         }
     }

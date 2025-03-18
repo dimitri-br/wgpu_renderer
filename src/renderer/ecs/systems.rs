@@ -503,7 +503,7 @@ pub fn render_graph_system(
 
             if let Some(encoder) = ctx.encoder {
                 let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: Some("Depth Pass"),
+                    label: Some("Draw Pass"),
                     color_attachments: &[
                         Some(generate_color_attachment(&albedo_view)),
                         Some(generate_color_attachment(&normal_view)),
@@ -521,9 +521,7 @@ pub fn render_graph_system(
                 });
                 pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
                 pass.set_bind_group(2, &graphics.instancing_component.instancing_bind_group, &[]);
-                println!("Num Commands: {}", graphics.render_batcher.commands.len());
                 for command in &graphics.render_batcher.commands {
-                    println!("Command !");
                     match command {
                         RenderCommand::Instanced { mesh, material, transforms: _ } => {
                             if !material.get_depth(){
@@ -621,7 +619,6 @@ pub fn render_graph_system(
                                         // Skip if these instances don't cast shadows
                                         continue;
                                     }
-                                    pass.set_pipeline(&shadow_material.get_pipeline());
 
                                     pass.set_push_constants(
                                         wgpu::ShaderStages::VERTEX_FRAGMENT,
@@ -631,9 +628,6 @@ pub fn render_graph_system(
 
                                     // Retrieve the offset/count from the instancing component
                                     let key = (Arc::as_ptr(&mesh) as u64, Arc::as_ptr(&material) as u64);
-                                    // Or if you do store a "shadow_mat" in the batch, you'd match that.
-                                    // If your real code uses the same key as the depth pass (mesh+material), do that:
-                                    // let key = (Arc::as_ptr(mesh) as u64, Arc::as_ptr(material) as u64);
 
                                     if let Some(&(inst_offset, inst_count)) = graphics.instancing_component.group_offsets.get(&key) {
                                         mesh.draw_instanced(&mut pass, inst_offset, inst_count);
@@ -643,7 +637,6 @@ pub fn render_graph_system(
                                     if !material.is_shadow_caster() {
                                         continue;
                                     }
-                                    pass.set_pipeline(&shadow_material.get_pipeline());
                                     // Combine model + smc.shadow_data.light_view_proj in push constants
                                     // so the vertex shader can do: shadow_matrix * model * position.
                                     let mut push_data = Vec::with_capacity(64);

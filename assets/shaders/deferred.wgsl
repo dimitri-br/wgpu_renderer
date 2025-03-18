@@ -16,6 +16,7 @@ struct Light {
     shadow_offset: u32,
     shadow_count: u32,
     spot_angle: f32,
+    cast_shadow: u32,
 };
 
 struct ShadowData {
@@ -133,11 +134,11 @@ fn compute_shadow_coord(sd: ShadowData, world_pos: vec3<f32>, remapZ: bool) -> v
     // Check if the coord falls outside the atlas.
     // We can do this by checking against the min/max that the
     // UV scale and offset would produce.
-    let min_uv = sd.uv_offset;
-    let max_uv = sd.uv_offset + sd.uv_scale;
-    let outside = any(coord.xy < min_uv) || any(coord.xy > max_uv);
+    //let min_uv = sd.uv_offset;
+    //let max_uv = sd.uv_offset + sd.uv_scale;
+    //let outside = any(coord.xy < min_uv) || any(coord.xy > max_uv);
     // If outside, set Z to -1 to indicate that the pixel is in shadow.
-    coord.z = select(coord.z, -1.0, outside);
+    //coord.z = select(coord.z, -1.0, outside);
 
     return coord;
 }
@@ -169,114 +170,112 @@ fn fragment_main(input: VertexOutput) -> FragmentOutput {
     // Start with an ambient term.
     var final_color = albedo * 0.05;
 
+    let offsets = array<vec2<f32>, 9>(
+                        vec2<f32>(-1.0, -1.0), vec2<f32>( 0.0, -1.0), vec2<f32>( 1.0, -1.0),
+                        vec2<f32>(-1.0,  0.0), vec2<f32>( 0.0,  0.0), vec2<f32>( 1.0,  0.0),
+                        vec2<f32>(-1.0,  1.0), vec2<f32>( 0.0,  1.0), vec2<f32>( 1.0,  1.0)
+                    );
+
     // Loop over lights.
     for (var i = 0u; i < light_count; i = i + 1u) {
         let light = lights[i];
         if (light.intensity <= 0.0) { continue; }
+        switch (light.light_type) {
+        case 0u: {
+                // Directional light.
+                let L = normalize(-light.rotation);
+                let NdotL = max(dot(N_decoded, L), 0.0);
+                if (NdotL > 0.0) {
+                    var diffuse = albedo * light.color * NdotL * light.intensity;
+                    if (light.cast_shadow == 1u) {
+                        let sd = shadow_data[light.shadow_offset];
+                        var shadow_coord = compute_shadow_coord(sd, world_pos.xyz, false);
 
-        if (light.light_type == 0u) {
-            // Directional light.
-            let L = normalize(-light.rotation);
-            let NdotL = max(dot(N_decoded, L), 0.0);
-            if (NdotL > 0.0) {
-                var diffuse = albedo * light.color * NdotL * light.intensity;
-                let sd = shadow_data[light.shadow_offset];
-                var shadow_coord = compute_shadow_coord(sd, world_pos.xyz, false);
-
-                // 3x3 PCF.
-                let offsets = array<vec2<f32>, 9>(
-                    vec2<f32>(-1.0, -1.0), vec2<f32>( 0.0, -1.0), vec2<f32>( 1.0, -1.0),
-                    vec2<f32>(-1.0,  0.0), vec2<f32>( 0.0,  0.0), vec2<f32>( 1.0,  0.0),
-                    vec2<f32>(-1.0,  1.0), vec2<f32>( 0.0,  1.0), vec2<f32>( 1.0,  1.0)
-                );
-                let kernel_radius = 0.0001;
-                var pcf_sum = 0.0;
-                for (var j = 0u; j < 9u; j = j + 1u) {
-                    let offset = offsets[j] * kernel_radius;
-                    pcf_sum += textureSampleCompare(shadow_map, shadow_sampler, shadow_coord.xy + offset, shadow_coord.z);
+                        let kernel_radius = 0.0001;
+                        var pcf_sum = 0.0;
+                        for (var j = 0u; j < 9u; j = j + 1u) {
+                            let offset = offsets[j] * kernel_radius;
+                            pcf_sum += textureSampleCompare(shadow_map, shadow_sampler, shadow_coord.xy + offset, shadow_coord.z);
+                        }
+                        let shadow_factor = pcf_sum / 9.0;
+                        diffuse *= shadow_factor;
+                    }
+                    final_color += diffuse;
                 }
-                let shadow_factor = pcf_sum / 9.0;
-                diffuse *= shadow_factor;
-                final_color += diffuse;
             }
-        } else if (light.light_type == 1u) {
-            var diffuse = vec3<f32>(0.0);
-            let to_light = light.position - world_pos.xyz;
-            let L = normalize(to_light);
-            let NdotL = max(dot(N_decoded, L), 0.0);
-            let falloff = 1.0 - saturate(length(to_light) / light.range);
-            if (NdotL > 0.0) {
-                diffuse = albedo.xyz * light.color * NdotL * light.intensity * falloff;
+        case 1u: {
+                var diffuse = vec3<f32>(0.0);
+                let to_light = light.position - world_pos.xyz;
+                let light_dist = length(to_light);
 
-                // Point light.
-                if (length(to_light) > light.range) { continue; }
+                if (light_dist > light.range) { continue; }
 
+                let L = normalize(to_light);
+                let NdotL = max(dot(N_decoded, L), 0.0);
+                let falloff = 1.0 - saturate(light_dist / light.range);
+                if (NdotL > 0.0) {
+                    diffuse = albedo.xyz * light.color * NdotL * light.intensity * falloff;
 
-                let face_index = pick_point_light_face(to_light);
-                let sd = shadow_data[light.shadow_offset + face_index];
+                    if (light.cast_shadow == 1u) {
+                        let face_index = pick_point_light_face(to_light);
+                        let sd = shadow_data[light.shadow_offset + face_index];
 
-                // Adjust shadow coord to be in the light's view space.
-                var pos = world_pos.xyz;
+                        // Adjust shadow coord to be in the light's view space.
+                        var pos = world_pos.xyz;
 
-                var shadow_coord = compute_shadow_coord(sd, pos, false);
+                        var shadow_coord = compute_shadow_coord(sd, pos, false);
 
-                // Sample the shadow map.
-                let offsets = array<vec2<f32>, 9>(
-                    vec2<f32>(-1.0, -1.0), vec2<f32>( 0.0, -1.0), vec2<f32>( 1.0, -1.0),
-                    vec2<f32>(-1.0,  0.0), vec2<f32>( 0.0,  0.0), vec2<f32>( 1.0,  0.0),
-                    vec2<f32>(-1.0,  1.0), vec2<f32>( 0.0,  1.0), vec2<f32>( 1.0,  1.0)
-                );
-                let kernel_radius = 0.0002;
-                var pcf_sum = 0.0;
-                for (var j = 0u; j < 9u; j = j + 1u) {
-                    let offset = offsets[j] * kernel_radius;
-                    pcf_sum += textureSampleCompare(shadow_map, shadow_sampler, shadow_coord.xy + offset, shadow_coord.z);
+                        let kernel_radius = 0.0002;
+                        var pcf_sum = 0.0;
+                        for (var j = 0u; j < 9u; j = j + 1u) {
+                            let offset = offsets[j] * kernel_radius;
+                            pcf_sum += textureSampleCompare(shadow_map, shadow_sampler, shadow_coord.xy + offset, shadow_coord.z);
+                        }
+                        let shadow_factor = pcf_sum / 9.0;
+                        diffuse *= shadow_factor;
+                    }
+                    final_color += diffuse;
                 }
-                let shadow_factor = pcf_sum / 9.0;
-                diffuse *= shadow_factor;
-                final_color += diffuse;
             }
-        }
-        // Spot light.
-        else if (light.light_type == 2u) {
-            let to_light = light.position - world_pos.xyz;
-            let L = normalize(to_light);
-            let NdotL = max(dot(N_decoded, L), 0.0);
-            let falloff = 1.0 - saturate(length(to_light) / light.range);
+        case 2u: {
+                let to_light = light.position - world_pos.xyz;
+                let L = normalize(to_light);
+                let NdotL = max(dot(N_decoded, L), 0.0);
+                let falloff = 1.0 - saturate(length(to_light) / light.range);
 
-            // Compute spotlight effect.
-            // Assume spotlight direction is given by the normalized negative rotation.
-            let spot_dir = normalize(-light.rotation);
-            let cos_angle = dot(L, spot_dir);
-            let cutoff = cos(light.spot_angle); // cutoff cosine value.
-            if (NdotL > 0.0 && cos_angle > cutoff) {
-                // Smooth the edge of the spotlight.
-                let spot_factor = smoothstep(cutoff, cutoff + 0.1, cos_angle);
-                var diffuse = albedo * light.color * NdotL * light.intensity * falloff * spot_factor;
+                // Compute spotlight effect.
+                // Assume spotlight direction is given by the normalized negative rotation.
+                let spot_dir = normalize(-light.rotation);
+                let cos_angle = dot(L, spot_dir);
+                let cutoff = cos(light.spot_angle); // cutoff cosine value.
+                if (NdotL > 0.0 && cos_angle > cutoff) {
+                    // Smooth the edge of the spotlight.
+                    let spot_factor = smoothstep(cutoff, cutoff + 0.1, cos_angle);
+                    var diffuse = albedo * light.color * NdotL * light.intensity * falloff * spot_factor;
 
-                // Shadow mapping for spotlight.
-                let sd = shadow_data[light.shadow_offset];
-                var shadow_coord = compute_shadow_coord(sd, world_pos.xyz, false);
+                    // Shadow mapping for spotlight.
+                    if (light.cast_shadow == 1u) {
+                        let sd = shadow_data[light.shadow_offset];
+                        var shadow_coord = compute_shadow_coord(sd, world_pos.xyz, false);
 
-                let offsets = array<vec2<f32>, 9>(
-                    vec2<f32>(-1.0, -1.0), vec2<f32>( 0.0, -1.0), vec2<f32>( 1.0, -1.0),
-                    vec2<f32>(-1.0,  0.0), vec2<f32>( 0.0,  0.0), vec2<f32>( 1.0,  0.0),
-                    vec2<f32>(-1.0,  1.0), vec2<f32>( 0.0,  1.0), vec2<f32>( 1.0,  1.0)
-                );
-                let kernel_radius = 0.0001;
-                var pcf_sum = 0.0;
-                for (var j = 0u; j < 9u; j = j + 1u) {
-                    let offset = offsets[j] * kernel_radius;
-                    pcf_sum += textureSampleCompare(shadow_map, shadow_sampler, shadow_coord.xy + offset, shadow_coord.z);
+                        let kernel_radius = 0.0001;
+                        var pcf_sum = 0.0;
+                        for (var j = 0u; j < 9u; j = j + 1u) {
+                            let offset = offsets[j] * kernel_radius;
+                            pcf_sum += textureSampleCompare(shadow_map, shadow_sampler, shadow_coord.xy + offset, shadow_coord.z);
+                        }
+                        let shadow_factor = pcf_sum / 9.0;
+                        diffuse *= shadow_factor;
+                    }
+                    final_color += diffuse;
                 }
-                let shadow_factor = pcf_sum / 9.0;
-                diffuse *= shadow_factor;
-                final_color += diffuse;
+            }
+        default: {
+            // No-op.
             }
         }
     }
 
     output.color_rgba16float = vec4<f32>(final_color, 1.0);
-    //output = vec4<f32>(world_pos, 1.0);
     return output;
 }

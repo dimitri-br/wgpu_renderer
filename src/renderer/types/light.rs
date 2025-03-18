@@ -16,11 +16,11 @@ pub struct Light{
     pub shadow_data_offset: u32, // Only applicable for shadow casting lights
     pub shadow_data_count: u32, // Only applicable for shadow casting lights
     pub spot_angle: f32, // Only applicable for spotlights
-    _padding: f32,
+    pub cast_shadow: u32, // Do we cast shadows?
 }
 
 impl Light{
-    pub fn new(position: glam::Vec3, rotation: glam::Vec3, color: glam::Vec3, intensity: f32, range: f32, spot_angle: f32, light_type: LightType) -> Self {
+    pub fn new(position: glam::Vec3, rotation: glam::Vec3, color: glam::Vec3, intensity: f32, range: f32, spot_angle: f32, cast_shadow: bool, light_type: LightType) -> Self {
         Self {
             position,
             rotation,
@@ -32,7 +32,7 @@ impl Light{
             shadow_data_offset: 0,
             shadow_data_count: 0,
             spot_angle,
-            _padding: 0.0,
+            cast_shadow: cast_shadow as u32,
         }
     }
 
