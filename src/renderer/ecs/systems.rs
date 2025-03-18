@@ -85,7 +85,8 @@ pub fn load_assets(
         true,
         |material| {
             material.set_cull_mode(None);
-            material.set_depth(true, wgpu::TextureFormat::Depth16Unorm);
+            material.set_depth(true);
+            material.set_depth_format(TextureFormat::Depth16Unorm);
             material.set_transparent(false);
             material.set_texture("color_texture", capsule_tex.view.clone());
             material.set_sampler("color_sampler", sampler.clone());
@@ -100,7 +101,8 @@ pub fn load_assets(
         true,
         |material| {
             material.set_cull_mode(None);
-            material.set_depth(true, wgpu::TextureFormat::Depth16Unorm);
+            material.set_depth(true);
+            material.set_depth_format(TextureFormat::Depth16Unorm);
             material.set_transparent(false);
             material.set_texture("color_texture", white_tex.view.clone());
             material.set_sampler("color_sampler", sampler.clone());
@@ -116,7 +118,8 @@ pub fn load_assets(
         false,
         |material| {
             material.set_cull_mode(None);
-            material.set_depth(true, wgpu::TextureFormat::Depth16Unorm);
+            material.set_depth(true);
+            material.set_depth_format(TextureFormat::Depth16Unorm);
             material.set_transparent(false);
             material.set_texture("color_texture", white_tex.view.clone());
             material.set_sampler("color_sampler", sampler.clone());
@@ -131,7 +134,7 @@ pub fn load_assets(
         false,
         |material| {
             material.set_cull_mode(Some(wgpu::Face::Back));
-            material.set_depth(false, wgpu::TextureFormat::Depth16Unorm);
+            material.set_depth(false);
             material.set_transparent(false);
             material.set_texture("g_albedo", albedo_tex.view.clone());
             material.set_texture("g_normal", normal_tex.view.clone());
@@ -149,7 +152,7 @@ pub fn load_assets(
         false,
         |material| {
             material.set_cull_mode(Some(wgpu::Face::Front));
-            material.set_depth(false, wgpu::TextureFormat::Depth16Unorm);
+            material.set_depth(false);
             material.set_transparent(false);
             material.set_sampler("u_sampler", sampler.clone());
         },
@@ -163,7 +166,8 @@ pub fn load_assets(
         false,
         |material| {
             material.set_cull_mode(Some(wgpu::Face::Front));
-            material.set_depth(true, wgpu::TextureFormat::Depth24Plus);
+            material.set_depth(true);
+            material.set_depth_format(TextureFormat::Depth24Plus);
             material.set_transparent(false);
         },
     );
@@ -197,27 +201,6 @@ pub fn add_entities(
     mut lights: ViewMut<LightComponent>,
     mut light_manager: UniqueViewMut<LightManager>,
 ) {
-    // Ground
-    entities.add_entity(
-        (&mut meshes, &mut materials, &mut transforms),
-        (
-            MeshComponent {
-                mesh: asset_manager.get_mesh_by_name("assets/cube.obj").unwrap(),
-            },
-            MaterialComponent {
-                material: asset_manager.get_material_by_name("box_mat_shadowless").unwrap(),
-            },
-            TransformComponent {
-                transform: {
-                    let mut t = Transform::new();
-                    t.translate(vec3(0.0, -1.0, 0.0));
-                    t.scale(vec3(100.0, 0.1, 100.0));
-                    t
-                },
-            }
-        ),
-    );
-
     // Box
     entities.add_entity(
         (&mut meshes, &mut materials, &mut transforms),
@@ -236,6 +219,27 @@ pub fn add_entities(
                     t
                 },
             },
+        ),
+    );
+
+    // Ground
+    entities.add_entity(
+        (&mut meshes, &mut materials, &mut transforms),
+        (
+            MeshComponent {
+                mesh: asset_manager.get_mesh_by_name("assets/cube.obj").unwrap(),
+            },
+            MaterialComponent {
+                material: asset_manager.get_material_by_name("box_mat_shadowless").unwrap(),
+            },
+            TransformComponent {
+                transform: {
+                    let mut t = Transform::new();
+                    t.translate(vec3(0.0, -1.0, 0.0));
+                    t.scale(vec3(100.0, 0.1, 100.0));
+                    t
+                },
+            }
         ),
     );
 
@@ -427,7 +431,7 @@ pub fn update_lighting(
     let mut light_data: Vec<Light> = lights.iter().map(|lc| lc.light.clone()).collect();
     light_update.light_manager.update_lights(&mut light_data, &light_update.camera_component.camera);
 
-    for (mut lc, updated) in (&mut lights).iter().zip(light_data.into_iter()) {
+    for (lc, updated) in (&mut lights).iter().zip(light_data.into_iter()) {
         lc.light = updated;
     }
 }
@@ -517,10 +521,11 @@ pub fn render_graph_system(
                 });
                 pass.set_bind_group(0, &*ctx.global_component.global_bind_group, &[]);
                 pass.set_bind_group(2, &graphics.instancing_component.instancing_bind_group, &[]);
+                println!("Num Commands: {}", graphics.render_batcher.commands.len());
                 for command in &graphics.render_batcher.commands {
                     match command {
                         RenderCommand::Instanced { mesh, material, transforms: _ } => {
-                            if !material.get_depth().0{
+                            if !material.get_depth(){
                                 continue;
                             }
                             pass.set_pipeline(&material.get_pipeline());
@@ -540,7 +545,7 @@ pub fn render_graph_system(
                             }
                         }
                         RenderCommand::Single { mesh, material, transform } => {
-                            if !material.get_depth().0{
+                            if !material.get_depth(){
                                 continue;
                             }
                             pass.set_pipeline(&material.get_pipeline());
@@ -616,24 +621,8 @@ pub fn render_graph_system(
                                         // Skip if these instances don't cast shadows
                                         continue;
                                     }
-                                    // We'll assume your "shadow_mat" doesn't rely on the mesh's material
-                                    // pipeline states, or that it's the same pipeline you already set.
-                                    // For instanced draws, we do the same approach as in the depth pass:
                                     pass.set_pipeline(&shadow_material.get_pipeline());
-                                    // We also set push constants for each instance, but we only have
-                                    // one shadow matrix. The typical approach is to store (model + shadow_matrix)
-                                    // in push constants. However, to replicate the same approach as your
-                                    // depth pass, you'd set push constants to identity, and let the
-                                    // vertex shader fetch the instance data from the SSBO.
 
-                                    // But we still need to combine each instance model with smc.shadow_data.light_view_proj.
-                                    // Typically you'd do that in the shader. If your shader expects push constants,
-                                    // you'd need to do a loop. Instead, many do a per-instance push of model
-                                    // plus the light_view_proj. That might require a separate instanced pipeline.
-
-                                    // For a quick approach: set the push constants to identity for the model,
-                                    // and let the vertex shader multiply the instance transform by the shadow matrix
-                                    // from a uniform or push constants. If your shadow shader requires both, you'd do:
                                     pass.set_push_constants(
                                         wgpu::ShaderStages::VERTEX_FRAGMENT,
                                         0,

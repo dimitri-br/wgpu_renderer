@@ -169,7 +169,7 @@ impl LightManager {
         let near = 0.1;
         let far = 100.0;
         let proj = Mat4::orthographic_rh(left, right, bottom, top, near, far);
-        let mut light_view_proj = proj * light_view;
+        let light_view_proj = proj * light_view;
 
         // Update each shadow tile.
         for i in 0..light.shadow_data_count {
