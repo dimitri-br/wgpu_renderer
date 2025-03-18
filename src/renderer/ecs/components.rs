@@ -141,17 +141,6 @@ impl ShadowMapComponent {
     }
 }
 
-#[derive(Component)]
-pub struct ShadowCastComponent {
-    pub(crate) shadow_cast: bool,
-}
-
-impl ShadowCastComponent {
-    pub fn new(shadow_cast: bool) -> Self {
-        Self { shadow_cast }
-    }
-}
-
 impl GpuStorable for ShadowMapComponent {
     type Storage = ShadowData;
 

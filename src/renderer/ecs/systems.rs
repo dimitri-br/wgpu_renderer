@@ -107,6 +107,22 @@ pub fn load_assets(
         },
     );
 
+    // Shadowless box material
+    create_material_with(
+        &mut asset_manager,
+        "box_mat_shadowless",
+        "main_instanced",
+        true,
+        false,
+        |material| {
+            material.set_cull_mode(None);
+            material.set_depth(true, wgpu::TextureFormat::Depth16Unorm);
+            material.set_transparent(false);
+            material.set_texture("color_texture", white_tex.view.clone());
+            material.set_sampler("color_sampler", sampler.clone());
+        },
+    );
+
     create_material_with(
         &mut asset_manager,
         "gbuffer_mat",
@@ -178,19 +194,18 @@ pub fn add_entities(
     mut meshes: ViewMut<MeshComponent>,
     mut materials: ViewMut<MaterialComponent>,
     mut transforms: ViewMut<TransformComponent>,
-    mut shadow_cast: ViewMut<ShadowCastComponent>,
     mut lights: ViewMut<LightComponent>,
     mut light_manager: UniqueViewMut<LightManager>,
 ) {
     // Ground
     entities.add_entity(
-        (&mut meshes, &mut materials, &mut transforms, &mut shadow_cast),
+        (&mut meshes, &mut materials, &mut transforms),
         (
             MeshComponent {
                 mesh: asset_manager.get_mesh_by_name("assets/cube.obj").unwrap(),
             },
             MaterialComponent {
-                material: asset_manager.get_material_by_name("box_mat").unwrap(),
+                material: asset_manager.get_material_by_name("box_mat_shadowless").unwrap(),
             },
             TransformComponent {
                 transform: {
@@ -199,14 +214,13 @@ pub fn add_entities(
                     t.scale(vec3(100.0, 0.1, 100.0));
                     t
                 },
-            },
-            ShadowCastComponent { shadow_cast: false },
+            }
         ),
     );
 
     // Box
     entities.add_entity(
-        (&mut meshes, &mut materials, &mut transforms, &mut shadow_cast),
+        (&mut meshes, &mut materials, &mut transforms),
         (
             MeshComponent {
                 mesh: asset_manager.get_mesh_by_name("assets/cube.obj").unwrap(),
@@ -222,13 +236,12 @@ pub fn add_entities(
                     t
                 },
             },
-            ShadowCastComponent { shadow_cast: true },
         ),
     );
 
     // Capsules
     entities.bulk_add_entity(
-        (&mut meshes, &mut materials, &mut transforms, &mut shadow_cast),
+        (&mut meshes, &mut materials, &mut transforms),
         (0..250).map(|_| {
             let mesh_comp = MeshComponent {
                 mesh: asset_manager.get_mesh_by_name("assets/capsule.obj").unwrap(),
@@ -247,7 +260,7 @@ pub fn add_entities(
                 random::<f32>() * 360.0,
             ));
             transform.scale(vec3(0.5, 0.5, 0.5));
-            (mesh_comp, mat_comp, TransformComponent { transform }, ShadowCastComponent { shadow_cast: true })
+            (mesh_comp, mat_comp, TransformComponent { transform })
         }),
     );
 

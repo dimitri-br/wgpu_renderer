@@ -179,7 +179,6 @@ impl Material {
                 // Front Face
                 primitive.front_face = pipeline_params.front_face;
                 desc.depth_stencil = if pipeline_params.use_depth.0 {
-                    println!("Using depth: {:?}", pipeline_params.use_depth.1);
                     Some(
                         DepthStencilState{
                             format: pipeline_params.use_depth.1,
