@@ -523,6 +523,7 @@ pub fn render_graph_system(
                 pass.set_bind_group(2, &graphics.instancing_component.instancing_bind_group, &[]);
                 println!("Num Commands: {}", graphics.render_batcher.commands.len());
                 for command in &graphics.render_batcher.commands {
+                    println!("Command !");
                     match command {
                         RenderCommand::Instanced { mesh, material, transforms: _ } => {
                             if !material.get_depth(){
@@ -538,7 +539,6 @@ pub fn render_graph_system(
                             // Get the group mapping for this (mesh, material) pair.
                             let key = (Arc::as_ptr(&mesh) as u64, Arc::as_ptr(&material) as u64);
                             if let Some(&(offset, count)) = graphics.instancing_component.group_offsets.get(&key) {
-                                // Bind the instancing bind group to group 2.
                                 material.bind(&mut pass);
                                 // Draw instanced with the instance count from the group.
                                 mesh.draw_instanced(&mut pass, offset, count);
