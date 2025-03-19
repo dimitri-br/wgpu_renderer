@@ -15,7 +15,7 @@ pub mod render_batcher;
 use std::sync::Arc;
 use log::{error, info};
 use shipyard::Unique;
-use wgpu::{Backends, CompositeAlphaMode, Device, DeviceDescriptor, Features, Instance, InstanceDescriptor, InstanceFlags, Limits, PowerPreference, PresentMode, Queue, RequestAdapterOptions, Surface, SurfaceConfiguration, TextureFormat, TextureUsages};
+use wgpu::{BackendOptions, Backends, CompositeAlphaMode, Device, DeviceDescriptor, Dx12BackendOptions, Dx12Compiler, Features, Instance, InstanceDescriptor, InstanceFlags, Limits, PowerPreference, PresentMode, Queue, RequestAdapterOptions, Surface, SurfaceConfiguration, TextureFormat, TextureUsages};
 use winit::window::Window;
 use crate::renderer::bind_group_cache::{BindGroupCache, BindGroupKey};
 use ecs::global_component::GlobalComponent;
@@ -52,10 +52,18 @@ impl State {
             } else if cfg!(target_os = "macos") {
                 Backends::METAL
             } else {
-                Backends::PRIMARY
+                Backends::DX12
             },
             flags: InstanceFlags::default(),
-            backend_options: Default::default(),
+            backend_options: BackendOptions{
+                gl: Default::default(),
+                dx12: Dx12BackendOptions{
+                    shader_compiler: Dx12Compiler::DynamicDxc {
+                        dxc_path: "bin/dxcompiler.dll".to_string(),
+                        dxil_path: "bin/dxil.dll".to_string(),
+                    },
+                }
+            }
         });
 
         let surface = instance.create_surface(window.clone())
@@ -83,7 +91,7 @@ impl State {
                 | Features::TEXTURE_FORMAT_16BIT_NORM,
                 required_limits: Limits {
                     max_push_constant_size: 128,
-                    max_texture_dimension_2d: 16384,
+                    max_texture_dimension_2d: 8192,
                     ..Default::default()
                 },
                 memory_hints: wgpu::MemoryHints::Performance,

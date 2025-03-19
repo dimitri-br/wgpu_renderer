@@ -26,8 +26,11 @@ struct ShadowData {
     bias: f32,
 };
 
-// u32 push constant - light count
-var<push_constant> light_count: u32;
+struct PushConstants {
+    light_count: u32,
+};
+
+var<push_constant> push: PushConstants;
 
 @group(0) @binding(0)
 var<uniform> global_data: GlobalData;
@@ -170,14 +173,8 @@ fn fragment_main(input: VertexOutput) -> FragmentOutput {
     // Start with an ambient term.
     var final_color = albedo * 0.05;
 
-    let offsets = array<vec2<f32>, 9>(
-                        vec2<f32>(-1.0, -1.0), vec2<f32>( 0.0, -1.0), vec2<f32>( 1.0, -1.0),
-                        vec2<f32>(-1.0,  0.0), vec2<f32>( 0.0,  0.0), vec2<f32>( 1.0,  0.0),
-                        vec2<f32>(-1.0,  1.0), vec2<f32>( 0.0,  1.0), vec2<f32>( 1.0,  1.0)
-                    );
-
     // Loop over lights.
-    for (var i = 0u; i < light_count; i = i + 1u) {
+    for (var i = 0u; i < push.light_count; i = i + 1u) {
         let light = lights[i];
         if (light.intensity <= 0.0) { continue; }
         switch (light.light_type) {
@@ -191,6 +188,11 @@ fn fragment_main(input: VertexOutput) -> FragmentOutput {
                         let sd = shadow_data[light.shadow_offset];
                         var shadow_coord = compute_shadow_coord(sd, world_pos.xyz, false);
 
+    let offsets = array<vec2<f32>, 9>(
+                        vec2<f32>(-1.0, -1.0), vec2<f32>( 0.0, -1.0), vec2<f32>( 1.0, -1.0),
+                        vec2<f32>(-1.0,  0.0), vec2<f32>( 0.0,  0.0), vec2<f32>( 1.0,  0.0),
+                        vec2<f32>(-1.0,  1.0), vec2<f32>( 0.0,  1.0), vec2<f32>( 1.0,  1.0)
+                    );
                         let kernel_radius = 0.0001;
                         var pcf_sum = 0.0;
                         for (var j = 0u; j < 9u; j = j + 1u) {
@@ -225,6 +227,11 @@ fn fragment_main(input: VertexOutput) -> FragmentOutput {
 
                         var shadow_coord = compute_shadow_coord(sd, pos, false);
 
+    let offsets = array<vec2<f32>, 9>(
+                        vec2<f32>(-1.0, -1.0), vec2<f32>( 0.0, -1.0), vec2<f32>( 1.0, -1.0),
+                        vec2<f32>(-1.0,  0.0), vec2<f32>( 0.0,  0.0), vec2<f32>( 1.0,  0.0),
+                        vec2<f32>(-1.0,  1.0), vec2<f32>( 0.0,  1.0), vec2<f32>( 1.0,  1.0)
+                    );
                         let kernel_radius = 0.0002;
                         var pcf_sum = 0.0;
                         for (var j = 0u; j < 9u; j = j + 1u) {
@@ -258,6 +265,11 @@ fn fragment_main(input: VertexOutput) -> FragmentOutput {
                         let sd = shadow_data[light.shadow_offset];
                         var shadow_coord = compute_shadow_coord(sd, world_pos.xyz, false);
 
+    let offsets = array<vec2<f32>, 9>(
+                        vec2<f32>(-1.0, -1.0), vec2<f32>( 0.0, -1.0), vec2<f32>( 1.0, -1.0),
+                        vec2<f32>(-1.0,  0.0), vec2<f32>( 0.0,  0.0), vec2<f32>( 1.0,  0.0),
+                        vec2<f32>(-1.0,  1.0), vec2<f32>( 0.0,  1.0), vec2<f32>( 1.0,  1.0)
+                    );
                         let kernel_radius = 0.0001;
                         var pcf_sum = 0.0;
                         for (var j = 0u; j < 9u; j = j + 1u) {
