@@ -269,7 +269,7 @@ pub fn add_entities(
     );
 
     // Directional light
-    let dir_light = light_manager.create_directional_light(&mut shadow_atlas);
+    let dir_light = light_manager.create_directional_light(2048, true, &mut shadow_atlas);
     let dir_comp = LightComponent::new(dir_light, LightType::Directional);
     entities.add_entity(
         (&mut lights, &mut transforms),
@@ -277,11 +277,11 @@ pub fn add_entities(
     );
 
     // Point lights
-    for _ in 0..4 {
+    for _ in 0..125 {
         let position = vec3(
-            random::<f32>() * 25.0 - 12.5,
-            10.0,
-            random::<f32>() * 25.0 - 12.5,
+            random::<f32>() * 75.0 - 37.5,
+            random::<f32>() * 10.0 + 5.0,
+            random::<f32>() * 75.0 - 37.5,
         );
         let color = match random::<u8>() % 3 {
             0 => vec3(1.0, 0.0, 0.0),
@@ -290,7 +290,7 @@ pub fn add_entities(
         };
         let intensity = random::<f32>() * 5.0 + 2.5;
         let range = 15.0;
-        let point_light = light_manager.create_point_light(position, color, intensity, range, &mut shadow_atlas);
+        let point_light = light_manager.create_point_light(position, color, intensity, range, 64, false, &mut shadow_atlas);
         let point_comp = LightComponent::new(point_light, LightType::Point);
         entities.add_entity(
             (&mut lights, &mut transforms),
@@ -312,6 +312,8 @@ pub fn add_entities(
         spot_intensity,
         spot_range,
         spot_angle,
+        512,
+        true,
         &mut shadow_atlas,
     );
     let spot_comp = LightComponent::new(spot_light, LightType::Spot);
@@ -427,9 +429,10 @@ pub fn update_system(
 pub fn update_lighting(
     mut light_update: LightUpdateViewMut,
     mut lights: ViewMut<LightComponent>,
+    mut shadow_atlas: UniqueViewMut<ShadowAtlas>,
 ) {
     let mut light_data: Vec<Light> = lights.iter().map(|lc| lc.light.clone()).collect();
-    light_update.light_manager.update_lights(&mut light_data, &light_update.camera_component.camera);
+    light_update.light_manager.update_lights(&mut light_data, &light_update.camera_component.camera, &mut shadow_atlas);
 
     for (lc, updated) in (&mut lights).iter().zip(light_data.into_iter()) {
         lc.light = updated;
@@ -596,6 +599,9 @@ pub fn render_graph_system(
                 let light_data = graphics.light_manager.light_storage.get_all_lights();
 
                 for light in &light_data {
+                    if light.cast_shadow == 0{
+                        continue;
+                    }
                     for i in 0..light.shadow_data_count {
                         let offset = light.shadow_data_offset as usize + i as usize;
                         let smc = &shadow_data[offset];

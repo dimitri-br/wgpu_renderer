@@ -27,4 +27,10 @@ impl From<LightType> for u32 {
     }
 }
 
+impl PartialEq<LightType> for u32 {
+    fn eq(&self, other: &LightType) -> bool {
+        *self == *other as u32
+    }
+}
+
 unsafe impl bytemuck::Pod for LightType {}
