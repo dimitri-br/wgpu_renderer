@@ -28,6 +28,8 @@ use crate::renderer::render_batcher::{RenderBatcher, RenderCommand};
 use crate::renderer::render_graph::{RenderGraph, RenderGraphContext, RenderGraphNode};
 use crate::renderer::shadow_atlas::ShadowAtlas;
 use crate::renderer::State;
+use crate::renderer::types::aabb::AABB;
+use crate::renderer::types::frustum::Frustum;
 use crate::renderer::types::instance_data::InstanceData;
 use crate::renderer::types::light::Light;
 use crate::renderer::types::light_type::LightType;
@@ -47,7 +49,7 @@ pub fn load_assets(
     let capsule_tex = asset_manager.get_or_create_texture("capsule_tex", "assets/capsule0.jpg", true);
     let cube_mesh = asset_manager.get_or_create_mesh("assets/cube.obj");
     let white_tex = asset_manager.get_or_create_texture("white_tex", "assets/solid_white.png", false);
-
+    let teapot_mesh = asset_manager.get_or_create_mesh("assets/teapot.obj");
     // Screen textures (GBuffer)
     let screen_size = state.get_screen_size();
     let albedo_tex = asset_manager.get_or_create_screen_texture("albedo_texture", screen_size, TextureFormat::Rgba16Float);
@@ -198,12 +200,13 @@ pub fn add_entities(
     mut meshes: ViewMut<MeshComponent>,
     mut materials: ViewMut<MaterialComponent>,
     mut transforms: ViewMut<TransformComponent>,
+    mut aabb_components: ViewMut<AABBComponent>,
     mut lights: ViewMut<LightComponent>,
     mut light_manager: UniqueViewMut<LightManager>,
 ) {
     // Box
     entities.add_entity(
-        (&mut meshes, &mut materials, &mut transforms),
+        (&mut meshes, &mut materials, &mut transforms, &mut aabb_components),
         (
             MeshComponent {
                 mesh: asset_manager.get_mesh_by_name("assets/cube.obj").unwrap(),
@@ -219,12 +222,15 @@ pub fn add_entities(
                     t
                 },
             },
+            AABBComponent {
+                aabb: AABB::new(vec3(-0.5, -0.5, -0.5), vec3(0.5, 0.5, 0.5)),
+            },
         ),
     );
 
     // Ground
     entities.add_entity(
-        (&mut meshes, &mut materials, &mut transforms),
+        (&mut meshes, &mut materials, &mut transforms, &mut aabb_components),
         (
             MeshComponent {
                 mesh: asset_manager.get_mesh_by_name("assets/cube.obj").unwrap(),
@@ -239,23 +245,26 @@ pub fn add_entities(
                     t.scale(vec3(100.0, 0.1, 100.0));
                     t
                 },
-            }
+            },
+            AABBComponent {
+                aabb: AABB::new(vec3(-50.0, -1.1, -50.0), vec3(50.0, 0.1, 50.0)),
+            },
         ),
     );
 
     // Capsules
     entities.bulk_add_entity(
-        (&mut meshes, &mut materials, &mut transforms),
-        (0..250).map(|_| {
+        (&mut meshes, &mut materials, &mut transforms, &mut aabb_components),
+        (0..2500).map(|_| {
             let mesh_comp = MeshComponent {
-                mesh: asset_manager.get_mesh_by_name("assets/capsule.obj").unwrap(),
+                mesh: asset_manager.get_mesh_by_name("assets/teapot.obj").unwrap(),
             };
             let mat_comp = MaterialComponent {
-                material: asset_manager.get_material_by_name("capsule_mat").unwrap(),
+                material: asset_manager.get_material_by_name("box_mat").unwrap(),
             };
             let mut transform = Transform::new();
-            let x = random::<f32>() * 30.0 - 15.0;
-            let z = random::<f32>() * 30.0 - 15.0;
+            let x = random::<f32>() * 40.0 - 20.0;
+            let z = random::<f32>() * 40.0 - 20.0;
             transform.translate(vec3(x * 2.0 - 10.0, 0.0, z * 2.0 - 10.0));
             transform.rotate(glam::Quat::from_euler(
                 glam::EulerRot::YXZ,
@@ -264,7 +273,12 @@ pub fn add_entities(
                 random::<f32>() * 360.0,
             ));
             transform.scale(vec3(0.5, 0.5, 0.5));
-            (mesh_comp, mat_comp, TransformComponent { transform })
+
+            // Calculate AABB
+            let obj_aabb = mesh_comp.aabb.clone();
+            let aabb = obj_aabb.transform_aabb(&transform);
+
+            (mesh_comp, mat_comp, TransformComponent { transform }, aabb.into())
         }),
     );
 
@@ -402,6 +416,7 @@ pub fn update_system(
     meshes: View<MeshComponent>,
     materials: View<MaterialComponent>,
     transforms: View<TransformComponent>,
+    aabb_components: View<AABBComponent>,
 ) {
     state.update();
     let time = std::time::SystemTime::now()
@@ -409,19 +424,27 @@ pub fn update_system(
         .unwrap()
         .as_secs_f32();
 
+    // Update camera frustum
+    let camera = &camera_comp.camera;
+    camera_comp.frustum = Frustum::from_camera(camera);
+
     global_comp.global_data.update(time);
     camera_comp.camera.update(state.delta_time);
     global_comp.global_data.update_from_camera(camera_comp.camera.deref());
     global_comp.global_uniform_buffer.update(&global_comp.global_data);
 
+
     // Rebuild the render batch
     render_batcher.clear();
-    for (mesh, material, transform) in (&meshes, &materials, &transforms).iter() {
-        render_batcher.add(
-            mesh.mesh.clone(),
-            material.material.clone(),
-            transform.transform.clone(),
-        );
+    for (mesh, material, transform, aabb_comp) in (&meshes, &materials, &transforms, &aabb_components).iter() {
+        // Check if the mesh is within the camera frustum
+        if aabb_comp.aabb.is_in_frustum(&camera_comp.frustum){
+            render_batcher.add(
+                mesh.mesh.clone(),
+                material.material.clone(),
+                transform.transform.clone(),
+            );
+        }
     }
 }
 
@@ -462,6 +485,7 @@ pub fn update_instancing(
         }
     }
     instancing.update(&cpu_data, offsets);
+    log::info!("Updated instancing with {} instances", total);
 }
 
 /// Helper to create a RenderPassColorAttachment with a clear color.

@@ -59,43 +59,11 @@ var<push_constant> uniforms: Transform;
 @group(2) @binding(0)
 var<storage, read> instances: array<Transform>;
 
-fn is_identity(m: mat4x4<f32>) -> bool {
-    let epsilon: f32 = 0.0001;
-    return  abs(m[0][0] - 1.0) < epsilon &&
-            abs(m[0][1] - 0.0) < epsilon &&
-            abs(m[0][2] - 0.0) < epsilon &&
-            abs(m[0][3] - 0.0) < epsilon &&
-
-            abs(m[1][0] - 0.0) < epsilon &&
-            abs(m[1][1] - 1.0) < epsilon &&
-            abs(m[1][2] - 0.0) < epsilon &&
-            abs(m[1][3] - 0.0) < epsilon &&
-
-            abs(m[2][0] - 0.0) < epsilon &&
-            abs(m[2][1] - 0.0) < epsilon &&
-            abs(m[2][2] - 1.0) < epsilon &&
-            abs(m[2][3] - 0.0) < epsilon &&
-
-            abs(m[3][0] - 0.0) < epsilon &&
-            abs(m[3][1] - 0.0) < epsilon &&
-            abs(m[3][2] - 0.0) < epsilon &&
-            abs(m[3][3] - 1.0) < epsilon;
-}
-
-
 @vertex
 fn gb_vs_main(input: VertexInput, @builtin(instance_index) instance_index: u32) -> VertexOutput {
     var output: VertexOutput;
 
-    var instance: Transform;
-
-    // Check if the push constant is the identity matrix
-    if (!is_identity(uniforms.model)) {
-        instance = uniforms;
-    }else{
-        instance = instances[instance_index];
-    }
-
+    var instance = instances[instance_index];
 
     // Compute the world-space position from the model matrix
     let world_pos: vec4<f32> = (instance.model * vec4<f32>(input.position, 1.0));

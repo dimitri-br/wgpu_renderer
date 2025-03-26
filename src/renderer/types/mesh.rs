@@ -3,7 +3,7 @@ use std::io::BufReader;
 use std::path::Path;
 
 /// A single submesh containing positions, normals, texcoords, and indices.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SubMesh {
     pub positions: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
@@ -12,7 +12,7 @@ pub struct SubMesh {
 }
 
 /// A mesh which may contain multiple submeshes if the OBJ file has multiple groups/objects.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Mesh {
     pub submeshes: Vec<SubMesh>,
 }

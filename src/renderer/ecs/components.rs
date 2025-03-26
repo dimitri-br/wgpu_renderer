@@ -6,6 +6,7 @@ use crate::renderer::types::transform::Transform;
 use shipyard::*;
 use crate::renderer::gpu_storage::GpuStorable;
 use crate::renderer::shadow_atlas::AtlasTile;
+use crate::renderer::types::aabb::AABB;
 use crate::renderer::types::light::Light;
 use crate::renderer::types::light_type::LightType;
 use crate::renderer::types::shadow_data::ShadowData;
@@ -146,5 +147,22 @@ impl GpuStorable for ShadowMapComponent {
 
     fn as_storage(&self) -> Self::Storage {
         self.shadow_data
+    }
+}
+
+#[derive(Component)]
+pub struct AABBComponent {
+    pub aabb: AABB,
+}
+
+impl AABBComponent {
+    pub fn new(aabb: AABB) -> Self {
+        Self { aabb }
+    }
+}
+
+impl From<AABB> for AABBComponent {
+    fn from(aabb: AABB) -> Self {
+        Self::new(aabb)
     }
 }

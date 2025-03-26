@@ -1,7 +1,9 @@
 use crate::renderer::types::mesh::Mesh;
 use std::sync::Arc;
+use glam::Vec3;
 use wgpu::util::DeviceExt;
 use wgpu::{Buffer, BufferUsages, Device};
+use crate::renderer::types::aabb::AABB;
 use crate::renderer::types::vertex::Vertex;
 
 /// A single submesh in GPU memory
@@ -15,6 +17,7 @@ pub struct GpuSubMesh {
 /// A GPU mesh that contains multiple submeshes. Each submesh is drawn separately.
 pub struct GpuMesh {
     pub submeshes: Vec<GpuSubMesh>,
+    pub aabb: AABB, // Object-Space AABB for this mesh
 }
 
 impl GpuMesh {
@@ -72,8 +75,24 @@ impl GpuMesh {
             gpu_submeshes.push(gpu_submesh);
         }
 
+        // Collate all vertices to calculate aabb
+        let aabb = AABB::from_points(
+            &cpu_mesh.submeshes
+                .iter()
+                .cloned()
+                .into_iter()
+                .map(|sm| {
+                    sm.positions.iter().map(|pos|
+                        (*pos).into()
+                    ).collect::<Vec<Vec3>>()
+                })
+                .flatten()
+                .collect::<Vec<Vec3>>()
+        );
+
         Self {
             submeshes: gpu_submeshes,
+            aabb
         }
     }
 

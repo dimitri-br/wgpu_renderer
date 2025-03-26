@@ -103,12 +103,7 @@ fn is_identity(m: mat4x4<f32>) -> bool {
 @vertex
 fn vs_main(input: VertexInput, @builtin(instance_index) instance_index: u32) -> VertexOutput {
     var output: VertexOutput;
-    var instance: Transform;
-    if (!is_identity(uniforms.model)) {
-        instance.model = uniforms.model;
-    }else{
-        instance = instances[instance_index];
-    }
+    var instance = instances[instance_index];
     let world_pos = (instance.model * vec4<f32>(input.position, 1.0)).xyz;
     output.position = uniforms.shadow_view_proj * vec4<f32>(world_pos, 1.0);
     return output;
