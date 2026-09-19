@@ -12,8 +12,7 @@ This is a highly experimental 3d renderer written in rust, directly using wgpu. 
 
 ## What I was exploring
 
-I found that in my prior renderer experiments, resource management was constantly a wall I kept hitting, especially around lifetimes, handling data dynamically and flexibly. I was aware that while native APIs 
-like d3d12, vulkan supported bindless rendering, this was something not yet supported by wgpu. 
+I found that in my prior renderer experiments, resource management was constantly a wall I kept hitting, especially around lifetimes, handling data dynamically and flexibly. I was interested in bindless approaches in Vulkan and D3D12, but hadn’t found a way to get the resource model I wanted with wgpu.
 
 To work through this, I opted to try and use ECS as a mechanism to drive the entire renderer. By using components, entities and systems as a basis for handling the entire renderer from resource management, updates
 and rendering, it led to some interesting effects with scheduling, data flow, connectivity between different types and the structure of a renderer.
