@@ -16,7 +16,7 @@ I found that in my prior renderer experiments, resource management was constantl
 like d3d12, vulkan supported bindless rendering, this was something not yet supported by wgpu. 
 
 To work through this, I opted to try and use ECS as a mechanism to drive the entire renderer. By using components, entities and systems as a basis for handling the entire renderer from resource management, updates
-and rendering, it led to some interesting effects with paralleism, data flow, connectivity between different types and the structure of a renderer.
+and rendering, it led to some interesting effects with scheduling, data flow, connectivity between different types and the structure of a renderer.
 
 It's led to the current codebase you see today. While the renderer works, it's not strictly the cleanest in dataflow, and
 I learned a lot about what works, and what doesn't work. I probably wouldn't do this today, although it was a lot of fun to write after work on my Macbook in my hotel room until late at night :)
